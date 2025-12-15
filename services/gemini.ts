@@ -10,14 +10,29 @@ const ai = new GoogleGenAI({ apiKey });
  * Generates a structured script for a 60-second YouTube Short.
  */
 export const generateScript = async (topic: string): Promise<ScriptSegment[]> => {
+  // OPTIMIZED PROMPT:
+  // 1. Role defined (Viral Content Strategist).
+  // 2. Constraints explicit (Visual fit for captions, pacing).
+  // 3. Output format strict.
   const prompt = `
-    Create a compelling, fast-paced script for a 60-second YouTube Short about: "${topic}".
-    Split the script into 5 to 7 distinct visual segments.
+    You are an expert Viral Content Strategist for YouTube Shorts.
+    Your task is to generate a high-retention, fast-paced script for a 60-second video about: "${topic}".
+
+    ## CONSTRAINTS
+    1. **Structure**: Exactly 6 segments.
+    2. **Total Duration**: ~60 seconds.
+    3. **Pacing**: Hook (0-5s) -> Value/Story (5-50s) -> Conclusion/CTA (50-60s).
+
+    ## OUTPUT FORMAT (JSON Array)
     For each segment, provide:
-    1. 'narration': The spoken voiceover text (keep it punchy, total ~130-150 words).
-    2. 'visualDescription': A detailed prompt to generate an image for this segment. Focus on the visual elements, composition, and mood suitable for an AI image generator. Do not include text overlay instructions.
-    
-    Ensure the flow is logical: Hook -> Body -> Conclusion/Call to Action.
+    1. **narration**: The spoken text.
+       - **CRITICAL**: The text is displayed as on-screen captions. To fit the video layout, **MAXIMUM 30 WORDS per segment**.
+       - Tone: Conversational, energetic, punchy. No fluff.
+    2. **visualDescription**: A prompt for an AI image generator.
+       - Describe the scene visually (lighting, subject, angle).
+       - Do NOT ask for text inside the image.
+
+    Generate the JSON response now.
   `;
 
   try {
@@ -55,11 +70,13 @@ export const generateScript = async (topic: string): Promise<ScriptSegment[]> =>
  * Generates an image for a specific segment based on style and description.
  */
 export const generateImageForSegment = async (description: string, style: string): Promise<string> => {
+  // OPTIMIZED PROMPT:
+  // Front-loads the style and technical requirements for better adherence by the vision model.
   const finalPrompt = `
-    Style: ${style}.
-    Subject: ${description}.
-    Requirements: Vertical aspect ratio (9:16) if possible, or centered composition suitable for cropping. High resolution, professional quality, detailed, aesthetic.
-    No text/watermarks.
+    [Artistic Direction]: ${style}
+    [Subject]: ${description}
+    [Technical]: Vertical 9:16 aspect ratio composition, high contrast, professional lighting, centered subject, 8k resolution, highly detailed.
+    [Negative]: Do not include text, do not include watermarks, no blurry elements, no distorted features.
   `;
 
   try {
