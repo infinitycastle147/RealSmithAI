@@ -17,9 +17,10 @@ export interface ScriptSegment {
 }
 
 export interface GeneratedSegment extends ScriptSegment {
-  imageUrl?: string; // Base64 or Blob URL
-  audioUrl?: string; // Base64 or Blob URL
-  audioDuration?: number; // Seconds
+  imageUrl?: string;
+  audioUrl?: string;
+  audioDuration?: number;
+  audioBuffer?: AudioBuffer; // Decoded buffer for hot-path reuse
   isGenerating: boolean;
   error?: string;
 }

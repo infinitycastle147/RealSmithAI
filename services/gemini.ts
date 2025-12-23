@@ -1,45 +1,62 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { ScriptSegment, VoiceName } from "../types";
-import { base64PcmToWavBlob, base64ToUint8Array } from "../utils/audio";
+import { base64PcmToWavBlob } from "../utils/audio";
+
+let aiInstance: GoogleGenAI | null = null;
+const getAI = () => {
+  if (!aiInstance) {
+    aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  }
+  return aiInstance;
+};
+
+let decoderCtx: AudioContext | null = null;
+const getDecoderCtx = () => {
+  if (!decoderCtx) {
+    decoderCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  }
+  return decoderCtx;
+};
 
 /**
- * Generates a structured script for a 60-second YouTube Short.
+ * Generates a factually grounded script using Dedicated System Instructions and Search Grounding.
  */
-export const generateScript = async (topic: string, style: string): Promise<ScriptSegment[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+export const generateScript = async (topic: string, style: string): Promise<{ segments: ScriptSegment[], sources: any[] }> => {
+  const ai = getAI();
   
-  // Revised prompt based on Senior Prompt Engineer review
-  const prompt = `
-    Narrative Script Engine for Vertical Short-Form Content.
-    Objective: Generate a 6-segment JSON script for a 60-second video.
+  // Dedicated System Instruction: Defines persona, constraints, and output goals.
+  const systemInstruction = `
+    You are an elite Viral Content Strategist specializing in vertical short-form video (YouTube Shorts, TikTok).
     
-    Topic Context: "${topic}"
-    Visual Style Context: "${style}"
-
-    ## NARRATIVE ARCHITECTURE & PACING
-    - Segment 1: Hook (Target: 5 seconds). Capture immediate interest. Length: 60-80 characters.
-    - Segments 2-5: Body/Value (Target: 45 seconds total). Maintain momentum with short, punchy sentences. Length per segment: 130-160 characters.
-    - Segment 6: Conclusion/CTA (Target: 10 seconds). Strong summary and call to action. Length: 100-120 characters.
-
-    ## VISUAL CONSTRAINTS
-    - POV Consistency: Maintain a consistent Third-Person Cinematic POV across all visual descriptions.
-    - Style Alignment: Each description must strictly adhere to the "${style}" aesthetic.
-    - Subject Focus: Center the subject in vertical 9:16 framing.
-
-    ## OUTPUT RULES
-    - Use active verbs and high-energy narration style.
-    - Output must be a VALID JSON ARRAY only.
-    - Do not use exclamation marks in narration unless absolutely necessary.
+    CORE DIRECTIVES:
+    1. RETENTION-FIRST: Every script must start with a 'Scroll-Stopping Hook' (0-5s).
+    2. NARRATIVE ARC: The body must provide high-value information or entertainment with logical transitions.
+    3. CALL TO ACTION: End with a strong, single CTA.
+    4. VISUAL STORYBOARDING: Descriptions for visual segments must be cinematic and fit a 9:16 aspect ratio.
+    5. FACTUAL INTEGRITY: Use Google Search to verify any real-world claims, news, or historical data.
+    
+    OUTPUT FORMAT:
+    - You must return a valid JSON array of objects.
+    - Each object must have: 'narration' (string) and 'visualDescription' (string).
+    - Provide exactly 6 segments for a 60-second video.
   `;
+
+  const userPrompt = `Create a script about the following topic: "${topic}". 
+  The visual aesthetic for all scenes should be: "${style}". 
+  Ensure the narration is punchy and the facts are up-to-date.`;
 
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: prompt,
+      contents: userPrompt,
       config: {
+        systemInstruction,
         maxOutputTokens: 8000,
+        // Using a healthy thinking budget for narrative planning
         thinkingConfig: { thinkingBudget: 4000 },
+        // Enabling Google Search Grounding for live information retrieval
+        tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -55,98 +72,73 @@ export const generateScript = async (topic: string, style: string): Promise<Scri
       }
     });
 
-    // Directly parse response.text as requested by the review for application/json responses
-    const rawText = response.text || "[]";
-    const segments = JSON.parse(rawText);
+    const text = response.text || "[]";
+    const segments = JSON.parse(text);
+    // Extract grounding chunks for factual transparency in the UI
+    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
 
-    return segments.map((seg: any, index: number) => ({
-      id: `seg-${index}-${Date.now()}`,
-      ...seg
-    }));
+    return {
+      segments: segments.map((seg: any, index: number) => ({
+        id: `seg-${index}-${Date.now()}`,
+        ...seg
+      })),
+      sources
+    };
   } catch (error) {
     console.error("Script generation failed:", error);
-    throw new Error("Failed to generate script. Please try again.");
+    throw error;
   }
 };
 
 /**
- * Generates a 9:16 vertical image for a segment.
+ * Generates cinematic visuals using the flash-image model.
  */
 export const generateImageForSegment = async (description: string, style: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  // Revised prompt using XML delimiters for input isolation and positive constraints
+  const ai = getAI();
   const finalPrompt = `
-    Vertical Cinematic Image Generation.
-    
-    <style_reference>
-      ${style}
-    </style_reference>
-    
-    <visual_content>
-      ${description}
-    </visual_content>
-
-    ## COMPOSITION RULES
-    - Aspect Ratio: 9:16 (Vertical)
-    - Perspective: Consistent Cinematic POV
-    - Details: High fidelity, pure visual representation, empty background without any typography or watermarks.
-    - Lighting: Dynamic and focused on the subject.
+    Cinematic 9:16 vertical photography. 
+    Style: ${style}. 
+    Subject: ${description}. 
+    Atmospheric depth, professional lighting, photorealistic textures, 8k resolution. 
+    No text, logos, or watermarks.
   `;
-
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-image",
       contents: { parts: [{ text: finalPrompt }] },
-      config: {
-        imageConfig: {
-          aspectRatio: "9:16"
-        }
-      }
+      config: { imageConfig: { aspectRatio: "9:16" } }
     });
-
-    const imagePart = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
-    if (imagePart?.inlineData) {
-      return `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
-    }
+    const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+    if (part?.inlineData) return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
     throw new Error("No image data");
   } catch (error) {
-    console.error("Image generation failed:", error);
     return `https://picsum.photos/1080/1920?random=${Date.now()}`;
   }
 };
 
 /**
- * Generates voiceover using a selected voice.
+ * Synthesizes voiceovers with low-latency decoding.
  */
-export const generateVoiceForSegment = async (text: string, voice: VoiceName = 'Kore'): Promise<{ audioUrl: string, duration: number }> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: text.trim() }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: voice }
-          }
-        }
-      }
-    });
+export const generateVoiceForSegment = async (text: string, voice: VoiceName = 'Kore'): Promise<{ audioUrl: string, duration: number, buffer: AudioBuffer }> => {
+  const ai = getAI();
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash-preview-tts",
+    contents: [{ parts: [{ text: text.trim() }] }],
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } }
+    }
+  });
 
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) throw new Error("No audio data");
+  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+  if (!base64Audio) throw new Error("No audio data");
 
-    const wavBlob = base64PcmToWavBlob(base64Audio, 24000); 
-    const audioUrl = URL.createObjectURL(wavBlob);
-    
-    const rawBytes = base64ToUint8Array(base64Audio);
-    const duration = (rawBytes.length / 2) / 24000;
-
-    return { audioUrl, duration }; 
-  } catch (error) {
-    console.error("Voice generation failed:", error);
-    throw error;
-  }
+  const wavBlob = base64PcmToWavBlob(base64Audio, 24000); 
+  const audioUrl = URL.createObjectURL(wavBlob);
+  
+  const ctx = getDecoderCtx();
+  const arrayBuffer = await wavBlob.arrayBuffer();
+  const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+  
+  return { audioUrl, duration: audioBuffer.duration, buffer: audioBuffer };
 };
