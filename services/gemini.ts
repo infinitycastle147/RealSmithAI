@@ -1,45 +1,45 @@
-import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { ScriptSegment } from "../types";
-import { base64PcmToWavBlob } from "../utils/audio";
 
-// Check for API Key
-const apiKey = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { ScriptSegment, VoiceName } from "../types";
+import { base64PcmToWavBlob, base64ToUint8Array } from "../utils/audio";
 
 /**
  * Generates a structured script for a 60-second YouTube Short.
  */
-export const generateScript = async (topic: string): Promise<ScriptSegment[]> => {
-  // OPTIMIZED PROMPT:
-  // 1. Role defined (Viral Content Strategist).
-  // 2. Constraints explicit (Visual fit for captions, pacing).
-  // 3. Output format strict.
+export const generateScript = async (topic: string, style: string): Promise<ScriptSegment[]> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  // Revised prompt based on Senior Prompt Engineer review
   const prompt = `
-    You are an expert Viral Content Strategist for YouTube Shorts.
-    Your task is to generate a high-retention, fast-paced script for a 60-second video about: "${topic}".
+    Narrative Script Engine for Vertical Short-Form Content.
+    Objective: Generate a 6-segment JSON script for a 60-second video.
+    
+    Topic Context: "${topic}"
+    Visual Style Context: "${style}"
 
-    ## CONSTRAINTS
-    1. **Structure**: Exactly 6 segments.
-    2. **Total Duration**: ~60 seconds.
-    3. **Pacing**: Hook (0-5s) -> Value/Story (5-50s) -> Conclusion/CTA (50-60s).
+    ## NARRATIVE ARCHITECTURE & PACING
+    - Segment 1: Hook (Target: 5 seconds). Capture immediate interest. Length: 60-80 characters.
+    - Segments 2-5: Body/Value (Target: 45 seconds total). Maintain momentum with short, punchy sentences. Length per segment: 130-160 characters.
+    - Segment 6: Conclusion/CTA (Target: 10 seconds). Strong summary and call to action. Length: 100-120 characters.
 
-    ## OUTPUT FORMAT (JSON Array)
-    For each segment, provide:
-    1. **narration**: The spoken text.
-       - **CRITICAL**: The text is displayed as on-screen captions. To fit the video layout, **MAXIMUM 30 WORDS per segment**.
-       - Tone: Conversational, energetic, punchy. No fluff.
-    2. **visualDescription**: A prompt for an AI image generator.
-       - Describe the scene visually (lighting, subject, angle).
-       - Do NOT ask for text inside the image.
+    ## VISUAL CONSTRAINTS
+    - POV Consistency: Maintain a consistent Third-Person Cinematic POV across all visual descriptions.
+    - Style Alignment: Each description must strictly adhere to the "${style}" aesthetic.
+    - Subject Focus: Center the subject in vertical 9:16 framing.
 
-    Generate the JSON response now.
+    ## OUTPUT RULES
+    - Use active verbs and high-energy narration style.
+    - Output must be a VALID JSON ARRAY only.
+    - Do not use exclamation marks in narration unless absolutely necessary.
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
+        maxOutputTokens: 8000,
+        thinkingConfig: { thinkingBudget: 4000 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -55,7 +55,10 @@ export const generateScript = async (topic: string): Promise<ScriptSegment[]> =>
       }
     });
 
-    const segments = JSON.parse(response.text || "[]");
+    // Directly parse response.text as requested by the review for application/json responses
+    const rawText = response.text || "[]";
+    const segments = JSON.parse(rawText);
+
     return segments.map((seg: any, index: number) => ({
       id: `seg-${index}-${Date.now()}`,
       ...seg
@@ -67,84 +70,81 @@ export const generateScript = async (topic: string): Promise<ScriptSegment[]> =>
 };
 
 /**
- * Generates an image for a specific segment based on style and description.
+ * Generates a 9:16 vertical image for a segment.
  */
 export const generateImageForSegment = async (description: string, style: string): Promise<string> => {
-  // OPTIMIZED PROMPT:
-  // Front-loads the style and technical requirements for better adherence by the vision model.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  // Revised prompt using XML delimiters for input isolation and positive constraints
   const finalPrompt = `
-    [Artistic Direction]: ${style}
-    [Subject]: ${description}
-    [Technical]: Vertical 9:16 aspect ratio composition, high contrast, professional lighting, centered subject, 8k resolution, highly detailed.
-    [Negative]: Do not include text, do not include watermarks, no blurry elements, no distorted features.
+    Vertical Cinematic Image Generation.
+    
+    <style_reference>
+      ${style}
+    </style_reference>
+    
+    <visual_content>
+      ${description}
+    </visual_content>
+
+    ## COMPOSITION RULES
+    - Aspect Ratio: 9:16 (Vertical)
+    - Perspective: Consistent Cinematic POV
+    - Details: High fidelity, pure visual representation, empty background without any typography or watermarks.
+    - Lighting: Dynamic and focused on the subject.
   `;
 
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-image",
-      contents: {
-        parts: [{ text: finalPrompt }]
+      contents: { parts: [{ text: finalPrompt }] },
+      config: {
+        imageConfig: {
+          aspectRatio: "9:16"
+        }
       }
     });
 
-    // Check all parts for image data
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-      }
+    const imagePart = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+    if (imagePart?.inlineData) {
+      return `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
     }
-    
-    throw new Error("No image data found in response");
+    throw new Error("No image data");
   } catch (error) {
     console.error("Image generation failed:", error);
-    // Return a fallback placeholder if generation fails
     return `https://picsum.photos/1080/1920?random=${Date.now()}`;
   }
 };
 
 /**
- * Generates voiceover audio for a segment.
+ * Generates voiceover using a selected voice.
  */
-export const generateVoiceForSegment = async (text: string): Promise<{ audioUrl: string, duration: number }> => {
+export const generateVoiceForSegment = async (text: string, voice: VoiceName = 'Kore'): Promise<{ audioUrl: string, duration: number }> => {
   try {
-    if (!text || !text.trim()) {
-      throw new Error("Narration text is empty.");
-    }
-
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
-      // Fix: Correct structure for TTS endpoint - contents array
-      contents: [{
-        parts: [{ text: text.trim() }]
-      }],
+      contents: [{ parts: [{ text: text.trim() }] }],
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' } // 'Kore', 'Fenrir', 'Puck', 'Zephyr'
+            prebuiltVoiceConfig: { voiceName: voice }
           }
         }
       }
     });
 
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    
-    if (!base64Audio) {
-      throw new Error("No audio data received");
-    }
+    if (!base64Audio) throw new Error("No audio data");
 
     const wavBlob = base64PcmToWavBlob(base64Audio, 24000); 
     const audioUrl = URL.createObjectURL(wavBlob);
     
-    // Calculate duration
-    const audioContext = new AudioContext();
-    const arrayBuffer = await wavBlob.arrayBuffer();
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-    const duration = audioBuffer.duration;
-    audioContext.close();
+    const rawBytes = base64ToUint8Array(base64Audio);
+    const duration = (rawBytes.length / 2) / 24000;
 
     return { audioUrl, duration }; 
-
   } catch (error) {
     console.error("Voice generation failed:", error);
     throw error;

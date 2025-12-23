@@ -8,14 +8,15 @@ interface StepIndicatorProps {
 
 const steps: { id: AppStep; label: string }[] = [
   { id: 'INPUT', label: 'Concept' },
-  { id: 'SCRIPT', label: 'Script' },
   { id: 'STYLE', label: 'Style' },
+  { id: 'SCRIPT', label: 'Script' },
   { id: 'RESULT', label: 'Finish' }, 
 ];
 
 export const StepIndicator: React.FC<StepIndicatorProps> = ({ currentStep }) => {
   const getStepStatus = (id: AppStep) => {
-    const order = ['INPUT', 'SCRIPT', 'STYLE', 'GENERATION', 'RESULT'];
+    // New logical order: INPUT -> STYLE -> SCRIPT -> GENERATION -> RESULT
+    const order = ['INPUT', 'STYLE', 'SCRIPT', 'GENERATION', 'RESULT'];
     
     const currentIndex = order.indexOf(currentStep);
     const stepIndex = order.indexOf(id);

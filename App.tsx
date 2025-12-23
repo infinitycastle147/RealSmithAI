@@ -1,18 +1,20 @@
-import React, { useState } from 'react';
-import { Sparkles, Video, Wand2, Type as TypeIcon, Palette, Film, Download, RotateCcw, Clapperboard, ChevronRight } from 'lucide-react';
+
+import React, { useState, useEffect } from 'react';
+import { Sparkles, Video, Wand2, Type as TypeIcon, Palette, Film, Download, RotateCcw, Clapperboard, ChevronRight, Check, Settings2, Mic, PencilLine, Trash2, Plus } from 'lucide-react';
 import { Button } from './components/Button';
 import { StepIndicator } from './components/StepIndicator';
 import { generateScript, generateImageForSegment, generateVoiceForSegment } from './services/gemini';
 import { renderVideo } from './utils/videoGenerator';
-import { AppStep, VisualStyle, ProjectState } from './types';
+import { AppStep, VisualStyle, ProjectState, VoiceName, GeneratedSegment } from './types';
 
-// Style presets
 const STYLE_PRESETS = [
-  { id: VisualStyle.CHALKBOARD, label: 'Chalkboard', desc: 'Educational sketches on blackboard', color: 'from-emerald-800 to-emerald-950' },
-  { id: VisualStyle.WHITEBOARD, label: 'Whiteboard', desc: 'Clean marker illustrations', color: 'from-slate-200 to-slate-400 text-slate-900' },
-  { id: VisualStyle.ANIME, label: 'Anime', desc: 'Vibrant animated aesthetic', color: 'from-indigo-600 to-purple-800' },
+  { id: VisualStyle.CHALKBOARD, label: 'Chalkboard', desc: 'Hand-sketched aesthetic', color: 'from-emerald-800 to-emerald-950' },
+  { id: VisualStyle.ANIME, label: 'Anime', desc: 'Vibrant character-driven', color: 'from-indigo-600 to-purple-800' },
   { id: VisualStyle.CYBERPUNK, label: 'Cyberpunk', desc: 'Neon futuristic sci-fi', color: 'from-fuchsia-700 to-purple-900' },
+  { id: VisualStyle.REALISTIC, label: 'Realistic', desc: 'High-fidelity cinematic', color: 'from-slate-700 to-slate-900' },
 ];
+
+const VOICES: VoiceName[] = ['Kore', 'Puck', 'Zephyr', 'Fenrir'];
 
 export default function App() {
   const [step, setStep] = useState<AppStep>('INPUT');
@@ -22,91 +24,112 @@ export default function App() {
   const [project, setProject] = useState<ProjectState>({
     topic: '',
     style: VisualStyle.CHALKBOARD,
+    voice: 'Kore',
+    showCaptions: true,
+    exportFormat: 'mp4',
     segments: []
   });
 
-  // Step 1: Input Handler
-  const handleGenerateScript = async () => {
-    if (!project.topic.trim()) return;
-    
-    setIsLoading(true);
-    setLoadingMessage('Researching topic and drafting storyboard...');
-    
-    try {
-      const scriptSegments = await generateScript(project.topic);
-      setProject(prev => ({
-        ...prev,
-        segments: scriptSegments.map(s => ({ ...s, isGenerating: false }))
-      }));
-      setStep('SCRIPT');
-    } catch (err) {
-      alert("Failed to generate script. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Track URLs to revoke them only on unmount or explicit reset to avoid NetworkErrors
+  useEffect(() => {
+    return () => {
+      // Cleanup on unmount only
+      if (project.finalVideoUrl) {
+        URL.revokeObjectURL(project.finalVideoUrl);
+      }
+      project.segments.forEach(s => {
+        if (s.audioUrl) URL.revokeObjectURL(s.audioUrl);
+      });
+    };
+  }, []);
 
-  // Step 2: Script Edit Handler
-  const handleScriptUpdate = (index: number, field: 'narration' | 'visualDescription', value: string) => {
-    const newSegments = [...project.segments];
-    newSegments[index] = { ...newSegments[index], [field]: value };
-    setProject(prev => ({ ...prev, segments: newSegments }));
-  };
-
-  // Step 3: Style Selection -> Generation -> Rendering
   const handleStartGeneration = async () => {
     setStep('GENERATION');
     
-    const newSegments = [...project.segments];
+    // Revoke old video if it exists before creating a new one
+    if (project.finalVideoUrl) {
+      URL.revokeObjectURL(project.finalVideoUrl);
+    }
     
     try {
-        // 1. Generate Assets (Voice & Images)
-        for (let i = 0; i < newSegments.length; i++) {
-            newSegments[i].isGenerating = true;
-            setProject(prev => ({ ...prev, segments: [...newSegments] })); 
+        const segments = [...project.segments];
+        for (let i = 0; i < segments.length; i++) {
+            setLoadingMessage(`Preparing scene ${i + 1}/${segments.length}...`);
             
-            // Voice
-            if (!newSegments[i].audioUrl) {
-                setLoadingMessage(`Recording voiceover for scene ${i + 1}...`);
-                const { audioUrl, duration } = await generateVoiceForSegment(newSegments[i].narration);
-                newSegments[i].audioUrl = audioUrl;
-                newSegments[i].audioDuration = duration;
+            // 1. Voice
+            // If the text has changed or it's a new scene, we'll need to regenerate or verify.
+            // Currently, logic simply checks if audioUrl exists.
+            if (!segments[i].audioUrl) {
+                const { audioUrl, duration } = await generateVoiceForSegment(segments[i].narration, project.voice);
+                segments[i].audioUrl = audioUrl;
+                segments[i].audioDuration = duration;
             }
 
-            // Image
-            if (!newSegments[i].imageUrl) {
-                 setLoadingMessage(`Generating visuals for scene ${i + 1}...`);
-                 const stylePrompt = project.style === VisualStyle.CUSTOM ? (project.customStylePrompt || '') : project.style;
-                 const imageUrl = await generateImageForSegment(newSegments[i].visualDescription, stylePrompt);
-                 newSegments[i].imageUrl = imageUrl;
+            // 2. Image
+            if (!segments[i].imageUrl) {
+                 const styleStr = project.style === VisualStyle.CUSTOM ? (project.customStylePrompt || 'Modern Art') : project.style;
+                 segments[i].imageUrl = await generateImageForSegment(segments[i].visualDescription, styleStr);
             }
 
-            newSegments[i].isGenerating = false;
-            setProject(prev => ({ ...prev, segments: [...newSegments] }));
+            // Functional state update to avoid stale closures
+            setProject(prev => {
+              const updated = [...prev.segments];
+              updated[i] = { ...segments[i] };
+              return { ...prev, segments: updated };
+            });
         }
 
-        // 2. Render Final Video
-        setLoadingMessage('Rendering final composition...');
-        const videoUrl = await renderVideo(newSegments, (msg) => setLoadingMessage(msg));
+        const { url, actualMime } = await renderVideo(segments, (m) => setLoadingMessage(m), {
+          showCaptions: project.showCaptions,
+          format: project.exportFormat
+        });
         
-        setProject(prev => ({ ...prev, finalVideoUrl: videoUrl }));
+        setProject(prev => ({ 
+          ...prev, 
+          finalVideoUrl: url, 
+          exportFormat: actualMime.includes('mp4') ? 'mp4' : 'webm' 
+        }));
         setStep('RESULT');
-
     } catch (e) {
-        console.error("Generation failed", e);
-        alert("Something went wrong during generation. Please try again.");
-        setStep('STYLE'); // Go back
+        console.error(e);
+        alert("Production failed. Please try again.");
+        setStep('SCRIPT');
     }
+  };
+
+  const handleAddScene = () => {
+    const newScene: GeneratedSegment = {
+      id: `seg-${Date.now()}-${Math.random()}`,
+      narration: '',
+      visualDescription: '',
+      isGenerating: false
+    };
+    setProject(prev => ({
+      ...prev,
+      segments: [...prev.segments, newScene]
+    }));
+  };
+
+  const handleDeleteScene = (index: number) => {
+    setProject(prev => {
+      const sceneToDelete = prev.segments[index];
+      if (sceneToDelete.audioUrl) {
+        URL.revokeObjectURL(sceneToDelete.audioUrl);
+      }
+      const newSegments = prev.segments.filter((_, i) => i !== index);
+      return {
+        ...prev,
+        segments: newSegments
+      };
+    });
   };
 
   const handleDownload = () => {
     if (project.finalVideoUrl) {
       const a = document.createElement('a');
       a.href = project.finalVideoUrl;
-      a.download = `reelsmith-${project.topic.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}.webm`;
-      document.body.appendChild(a);
+      a.download = `reelsmith-${Date.now()}.${project.exportFormat}`;
       a.click();
-      document.body.removeChild(a);
     }
   };
 
@@ -116,361 +139,252 @@ export default function App() {
         return (
           <div className="flex flex-col items-center justify-center min-h-[60vh] animate-fadeIn">
              <div className="w-full max-w-3xl text-center space-y-10">
-                <div className="space-y-6">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-sm font-medium">
-                    <Sparkles size={14} /> AI-Powered Video Creation
-                  </div>
-                  <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-white leading-tight">
-                    Turn Ideas into <br />
-                    <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">Viral Shorts</span>
-                  </h1>
-                  <p className="text-slate-400 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
-                    ReelSmith AI automates the entire production process: scripting, voiceovers, visuals, and editing.
-                  </p>
+                <div className="space-y-4">
+                  <h1 className="text-6xl md:text-8xl font-black text-white leading-tight">Create <span className="bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">Viral</span> Reels</h1>
+                  <p className="text-slate-400 text-xl max-w-xl mx-auto">AI-powered scripting, voiceovers, and visual generation for YouTube Shorts.</p>
                 </div>
-
                 <div className="relative group max-w-2xl mx-auto">
-                  <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 rounded-2xl blur opacity-25 group-hover:opacity-60 transition duration-500"></div>
-                  <div className="relative bg-slate-900 p-2 rounded-2xl flex items-center shadow-2xl border border-slate-700/50">
-                    <div className="pl-4 pr-2 text-slate-400">
-                      <Wand2 size={24} />
-                    </div>
+                  <div className="absolute -inset-1 bg-blue-600 rounded-2xl blur opacity-20 group-hover:opacity-40 transition"></div>
+                  <div className="relative bg-slate-900 p-2 rounded-2xl flex border border-slate-700">
                     <input
-                      type="text"
+                      maxLength={150}
                       value={project.topic}
                       onChange={(e) => setProject(p => ({ ...p, topic: e.target.value }))}
-                      placeholder="What should we create today? (e.g., 'The history of coffee')"
-                      className="w-full bg-transparent text-white placeholder-slate-500 outline-none text-lg py-4 px-2"
-                      onKeyDown={(e) => e.key === 'Enter' && handleGenerateScript()}
+                      placeholder="Enter a topic (e.g., Space Exploration)"
+                      className="w-full bg-transparent text-white p-4 outline-none text-lg"
+                      onKeyDown={(e) => e.key === 'Enter' && project.topic && setStep('STYLE')}
                     />
-                    <Button 
-                      onClick={handleGenerateScript} 
-                      disabled={!project.topic.trim()}
-                      isLoading={isLoading}
-                      variant="glow"
-                      className="ml-2 py-3 px-8 text-lg"
-                    >
-                      Create
-                    </Button>
+                    <Button onClick={() => setStep('STYLE')} disabled={!project.topic.trim()} variant="glow">Next</Button>
                   </div>
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left mt-16">
-                   {[
-                     { icon: TypeIcon, title: "Smart Scripting", desc: "Auto-research & storyboard generation" },
-                     { icon: Palette, title: "Consistent Style", desc: "Uniform artistic direction across frames" },
-                     { icon: Video, title: "Production Ready", desc: "Mixed audio & visuals in 9:16 format" }
-                   ].map((feat, i) => (
-                     <div key={i} className="glass-card p-6 rounded-2xl hover:bg-slate-800/60 transition-colors border border-slate-700/50">
-                        <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center mb-4 text-blue-400 border border-slate-700">
-                          <feat.icon size={24} />
-                        </div>
-                        <h3 className="font-bold text-slate-100 text-lg mb-2">{feat.title}</h3>
-                        <p className="text-slate-400 text-sm leading-relaxed">{feat.desc}</p>
-                     </div>
-                   ))}
-                </div>
              </div>
+          </div>
+        );
+
+      case 'STYLE':
+        return (
+          <div className="w-full max-w-5xl mx-auto animate-fadeIn pb-24">
+            <h2 className="text-4xl font-bold text-white mb-8">Choose Direction</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+               {STYLE_PRESETS.map((s) => (
+                 <button
+                   key={s.id}
+                   onClick={() => setProject(p => ({ ...p, style: s.id as VisualStyle }))}
+                   className={`p-6 rounded-2xl border-2 transition-all text-left flex flex-col justify-between h-48 relative overflow-hidden group ${project.style === s.id ? 'border-blue-500 bg-slate-800' : 'border-slate-800 bg-slate-900/50 hover:border-slate-700'}`}
+                 >
+                   <div className={`absolute inset-0 bg-gradient-to-br ${s.color} opacity-10 group-hover:opacity-20 transition-opacity`}></div>
+                   <div className="relative z-10">
+                     <h3 className="text-2xl font-bold text-white mb-2">{s.label}</h3>
+                     <p className="text-slate-400 text-sm leading-relaxed">{s.desc}</p>
+                   </div>
+                   {project.style === s.id && (
+                     <div className="absolute top-4 right-4 text-blue-400">
+                        <Check size={24} />
+                     </div>
+                   )}
+                 </button>
+               ))}
+               
+               <div
+                 onClick={() => setProject(p => ({ ...p, style: VisualStyle.CUSTOM }))}
+                 className={`p-6 rounded-2xl border-2 transition-all text-left flex flex-col justify-between h-48 cursor-pointer relative ${project.style === VisualStyle.CUSTOM ? 'border-purple-500 bg-slate-800' : 'border-slate-800 bg-slate-900/50 hover:border-slate-700'}`}
+               >
+                  <div className="relative z-10 w-full">
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="text-2xl font-bold text-white">Custom Style</h3>
+                      {project.style === VisualStyle.CUSTOM && <Check size={24} className="text-purple-400" />}
+                    </div>
+                    <p className="text-slate-400 text-sm mb-4">Describe your own unique aesthetic...</p>
+                    
+                    <div className="relative" onClick={(e) => e.stopPropagation()}>
+                      <PencilLine className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                      <input 
+                        type="text"
+                        placeholder="e.g. Claymation, Oil Painting, 3D Render"
+                        className="w-full bg-slate-950/50 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors"
+                        value={project.customStylePrompt || ''}
+                        onChange={(e) => setProject(p => ({ ...p, style: VisualStyle.CUSTOM, customStylePrompt: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+               </div>
+            </div>
+            
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl p-8 flex flex-col md:flex-row gap-12 justify-between items-center">
+              <div className="space-y-6">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-400"><Mic /></div>
+                  <div>
+                    <span className="block text-white font-bold">Narrator Voice</span>
+                    <div className="flex gap-2 mt-2">
+                      {VOICES.map(v => (
+                        <button key={v} onClick={() => setProject(p => ({ ...p, voice: v }))} className={`px-3 py-1 rounded-lg text-xs font-bold transition ${project.voice === v ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500'}`}>{v}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center text-purple-400"><TypeIcon /></div>
+                  <div>
+                    <span className="block text-white font-bold">Captions</span>
+                    <button onClick={() => setProject(p => ({ ...p, showCaptions: !p.showCaptions }))} className={`mt-2 px-4 py-1.5 rounded-lg text-xs font-bold ${project.showCaptions ? 'bg-green-600' : 'bg-slate-800'}`}>{project.showCaptions ? 'Enabled' : 'Disabled'}</button>
+                  </div>
+                </div>
+              </div>
+              <Button onClick={async () => {
+                setIsLoading(true);
+                try {
+                  const styleStr = project.style === VisualStyle.CUSTOM ? (project.customStylePrompt || 'Modern Art') : project.style;
+                  const script = await generateScript(project.topic, styleStr);
+                  setProject(p => ({ ...p, segments: script.map(s => ({ ...s, isGenerating: false })) }));
+                  setStep('SCRIPT');
+                } catch (e) {
+                  alert("Failed to generate script.");
+                } finally {
+                  setIsLoading(false);
+                }
+              }} variant="glow" className="py-6 px-12 text-xl" isLoading={isLoading}>Generate Storyboard</Button>
+            </div>
           </div>
         );
 
       case 'SCRIPT':
         return (
           <div className="w-full max-w-5xl mx-auto animate-fadeIn pb-32">
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h2 className="text-3xl font-bold text-white mb-2">Storyboard Editor</h2>
-                <p className="text-slate-400">Review and refine the generated script segments.</p>
-              </div>
-              <div className="px-4 py-2 bg-slate-800 rounded-lg border border-slate-700 text-sm text-slate-300">
-                 {project.segments.length} Scenes
-              </div>
+            <div className="flex justify-between items-center mb-8">
+              <h2 className="text-3xl font-bold text-white">Review & Manage Scenes</h2>
+              <Button onClick={handleAddScene} variant="outline" className="text-sm py-2 px-4">
+                <Plus size={16} /> Add Scene
+              </Button>
             </div>
-
+            
             <div className="space-y-6">
-              {project.segments.map((seg, idx) => (
-                <div key={seg.id} className="glass-card rounded-2xl p-6 border border-slate-700/50 relative overflow-hidden group">
-                   {/* Scene Number */}
-                   <div className="absolute top-0 left-0 bg-slate-800/80 backdrop-blur px-4 py-2 rounded-br-2xl border-r border-b border-slate-700 text-xs font-bold text-slate-400 uppercase tracking-wider z-10">
-                      Scene {idx + 1}
-                   </div>
+              {project.segments.map((seg, i) => (
+                <div key={seg.id} className="relative group bg-slate-900 border border-slate-800 rounded-2xl p-6 transition-all hover:border-slate-600">
+                  <div className="absolute -top-3 -left-3 w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center text-xs font-bold text-slate-400 border border-slate-700 z-10">
+                    {i + 1}
+                  </div>
+                  
+                  <button 
+                    onClick={() => handleDeleteScene(i)}
+                    className="absolute top-4 right-4 p-2 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    title="Delete Scene"
+                  >
+                    <Trash2 size={18} />
+                  </button>
 
-                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mt-4">
-                      {/* Left: Narration */}
-                      <div className="lg:col-span-7 space-y-3">
-                        <label className="flex items-center gap-2 text-xs uppercase font-bold text-blue-400 tracking-wider">
-                          <TypeIcon size={14} /> Voiceover Script
-                        </label>
-                        <textarea
-                          value={seg.narration}
-                          onChange={(e) => handleScriptUpdate(idx, 'narration', e.target.value)}
-                          className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 text-slate-100 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 outline-none min-h-[120px] resize-none text-base leading-relaxed transition-all"
-                          placeholder="Enter narration text..."
-                        />
-                      </div>
-                      
-                      {/* Right: Visual */}
-                      <div className="lg:col-span-5 space-y-3">
-                        <label className="flex items-center gap-2 text-xs uppercase font-bold text-purple-400 tracking-wider">
-                          <Palette size={14} /> Visual Prompt
-                        </label>
-                        <textarea
-                          value={seg.visualDescription}
-                          onChange={(e) => handleScriptUpdate(idx, 'visualDescription', e.target.value)}
-                          className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-4 text-slate-300 focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50 outline-none min-h-[120px] resize-none text-sm leading-relaxed transition-all"
-                          placeholder="Describe the image..."
-                        />
-                      </div>
-                   </div>
+                  <div className="flex flex-col md:flex-row gap-6 mt-2">
+                    <div className="flex-1 space-y-2">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <Mic size={12} /> Narration
+                      </label>
+                      <textarea 
+                        value={seg.narration} 
+                        placeholder="What should the AI say in this scene?"
+                        onChange={(e) => {
+                          const upd = [...project.segments]; 
+                          upd[i].narration = e.target.value;
+                          // If narration changes, we should clear existing audio to force regeneration
+                          if (upd[i].audioUrl) {
+                            URL.revokeObjectURL(upd[i].audioUrl!);
+                            upd[i].audioUrl = undefined;
+                          }
+                          setProject(p => ({ ...p, segments: upd }));
+                        }} 
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-white focus:border-blue-500 outline-none h-24 transition-colors resize-none" 
+                      />
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <Film size={12} /> Visual Description
+                      </label>
+                      <textarea 
+                        value={seg.visualDescription} 
+                        placeholder="What should the AI visualize?"
+                        onChange={(e) => {
+                          const upd = [...project.segments]; 
+                          upd[i].visualDescription = e.target.value;
+                          // If visual changes, clear image to force regeneration
+                          upd[i].imageUrl = undefined;
+                          setProject(p => ({ ...p, segments: upd }));
+                        }} 
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-slate-400 focus:border-purple-500 outline-none h-24 transition-colors resize-none" 
+                      />
+                    </div>
+                  </div>
                 </div>
               ))}
-            </div>
-            
-            <div className="fixed bottom-0 left-0 w-full glass border-t border-slate-700/50 p-6 flex justify-center z-50">
-               <div className="max-w-5xl w-full flex justify-between items-center">
-                  <Button variant="ghost" onClick={() => setStep('INPUT')}>Back</Button>
-                  <Button variant="glow" onClick={() => setStep('STYLE')}>
-                    Next Step <ChevronRight size={18} />
+              
+              {project.segments.length === 0 && (
+                <div className="text-center py-20 border-2 border-dashed border-slate-800 rounded-3xl">
+                  <p className="text-slate-500 mb-6">No scenes remaining. Add one to get started!</p>
+                  <Button onClick={handleAddScene} variant="primary">
+                    <Plus size={18} /> Add Your First Scene
                   </Button>
-               </div>
-            </div>
-          </div>
-        );
-
-      case 'STYLE':
-        return (
-          <div className="w-full max-w-5xl mx-auto animate-fadeIn pb-32">
-            <h2 className="text-3xl font-bold text-white mb-2">Art Direction</h2>
-            <p className="text-slate-400 mb-8">Select a visual style for your video.</p>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-               {STYLE_PRESETS.map((s) => (
-                 <button
-                   key={s.id}
-                   onClick={() => setProject(p => ({ ...p, style: s.id as VisualStyle }))}
-                   className={`relative h-48 rounded-2xl border-2 text-left transition-all duration-300 overflow-hidden group flex flex-col justify-end p-6
-                     ${project.style === s.id 
-                       ? 'border-blue-500 ring-4 ring-blue-500/10 scale-[1.02]' 
-                       : 'border-slate-800 hover:border-slate-600 hover:bg-slate-800/50'}
-                   `}
-                 >
-                   {/* Background Gradient */}
-                   <div className={`absolute inset-0 bg-gradient-to-br ${s.color} opacity-20 group-hover:opacity-30 transition-opacity`}></div>
-                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent"></div>
-                   
-                   <div className="relative z-10">
-                     <div className="flex justify-between items-end">
-                       <div>
-                         <h3 className={`text-2xl font-bold mb-1 ${project.style === s.id ? 'text-white' : 'text-slate-200'}`}>{s.label}</h3>
-                         <p className="text-slate-400 text-sm font-medium">{s.desc}</p>
-                       </div>
-                       {project.style === s.id && (
-                         <div className="bg-blue-500 text-white p-2 rounded-full shadow-lg shadow-blue-500/40">
-                           <CheckIcon size={20} />
-                         </div>
-                       )}
-                     </div>
-                   </div>
-                 </button>
-               ))}
-               
-               {/* Custom Style Card */}
-                <button
-                   onClick={() => setProject(p => ({ ...p, style: VisualStyle.CUSTOM }))}
-                   className={`relative h-48 rounded-2xl border-2 text-left transition-all duration-300 overflow-hidden flex flex-col p-6
-                     ${project.style === VisualStyle.CUSTOM 
-                       ? 'border-blue-500 ring-4 ring-blue-500/10 bg-slate-800' 
-                       : 'border-slate-800 bg-slate-900/50 hover:border-slate-600'}
-                   `}
-                 >
-                   <div className="flex items-center gap-3 mb-4">
-                     <div className="p-2 bg-slate-700 rounded-lg text-white">
-                        <Wand2 size={20} />
-                     </div>
-                     <h3 className="text-xl font-bold text-slate-200">Custom Style</h3>
-                   </div>
-                   
-                   <input 
-                     type="text" 
-                     placeholder="e.g. Claymation, Oil Painting, Pixel Art..."
-                     className="w-full bg-slate-950/50 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-blue-500 outline-none transition-colors"
-                     value={project.customStylePrompt || ''}
-                     onChange={(e) => setProject(p => ({ ...p, customStylePrompt: e.target.value }))}
-                     onClick={(e) => { e.stopPropagation(); setProject(p => ({...p, style: VisualStyle.CUSTOM})) }} 
-                   />
-                 </button>
+                </div>
+              )}
             </div>
 
-            <div className="fixed bottom-0 left-0 w-full glass border-t border-slate-700/50 p-6 flex justify-center z-50">
-               <div className="max-w-5xl w-full flex justify-between items-center">
-                  <Button variant="ghost" onClick={() => setStep('SCRIPT')}>Back</Button>
-                  <Button variant="glow" onClick={handleStartGeneration}>Generate Video <Film size={18}/></Button>
-               </div>
+            <div className="fixed bottom-0 left-0 w-full p-6 bg-slate-950/80 backdrop-blur border-t border-slate-800 flex justify-center z-50">
+              <div className="max-w-5xl w-full flex justify-between gap-4">
+                <Button onClick={() => setStep('STYLE')} variant="ghost">Back to Styles</Button>
+                <Button 
+                  onClick={handleStartGeneration} 
+                  variant="glow" 
+                  disabled={project.segments.length === 0 || project.segments.some(s => !s.narration.trim())}
+                  className="px-12 py-4 text-lg"
+                >
+                  Start Rendering Video
+                </Button>
+              </div>
             </div>
           </div>
         );
 
       case 'GENERATION':
         return (
-          <div className="w-full max-w-2xl mx-auto flex flex-col items-center justify-center min-h-[60vh] text-center animate-fadeIn">
-            <div className="relative w-32 h-32 mb-10">
-              <div className="absolute inset-0 border-4 border-slate-800 rounded-full"></div>
-              <div className="absolute inset-0 border-4 border-blue-500 rounded-full border-t-transparent animate-spin"></div>
-              <div className="absolute inset-0 flex items-center justify-center">
-                 <Sparkles className="text-blue-400 animate-pulse" size={40} />
-              </div>
-            </div>
-            
-            <h2 className="text-3xl font-bold mb-4 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-               Producing Your Short
-            </h2>
-            <p className="text-slate-400 mb-8 text-lg font-medium animate-pulse">{loadingMessage}</p>
-            
-            <div className="w-full bg-slate-800/50 rounded-full h-3 mb-4 overflow-hidden border border-slate-700/50 max-w-md">
-               <div className="h-full bg-gradient-to-r from-blue-500 to-purple-600 rounded-full w-1/3 animate-[translateX_-100%_infinite_linear] origin-left" style={{ animation: 'slide 2s infinite ease-in-out' }}></div>
-            </div>
-            
-            <p className="text-slate-500 text-sm mt-4">This process creates images, synthesis voice, and renders video in real-time.</p>
-
-            <style>{`
-              @keyframes slide {
-                0% { transform: translateX(-100%); width: 20%; }
-                50% { width: 50%; }
-                100% { transform: translateX(400%); width: 20%; }
-              }
-            `}</style>
+          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+            <div className="w-24 h-24 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-8"></div>
+            <h2 className="text-3xl font-bold text-white mb-2">Rendering Your Short</h2>
+            <p className="text-slate-400 animate-pulse">{loadingMessage}</p>
           </div>
         );
 
       case 'RESULT':
         return (
-          <div className="w-full max-w-6xl mx-auto animate-fadeIn flex flex-col items-center pb-10">
-             <div className="text-center mb-10">
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-green-400 font-medium mb-4">
-                  <CheckIcon size={16} /> Rendering Complete
-                </div>
-                <h2 className="text-4xl font-bold text-white mb-2">Your Reel is Ready</h2>
-             </div>
-
-             <div className="flex flex-col lg:flex-row gap-12 items-center justify-center w-full">
-                {/* Video Player */}
-                <div className="relative group perspective-1000">
-                   <div className="absolute -inset-1 bg-gradient-to-b from-blue-500 to-purple-600 rounded-[2.5rem] blur opacity-40 group-hover:opacity-75 transition duration-500"></div>
-                   <div className="relative rounded-[2rem] overflow-hidden border-8 border-slate-900 bg-black shadow-2xl mx-auto z-10">
-                      <video 
-                         src={project.finalVideoUrl} 
-                         controls 
-                         autoPlay 
-                         loop
-                         className="max-h-[70vh] w-auto aspect-[9/16] object-contain block"
-                      />
+          <div className="w-full max-w-6xl mx-auto animate-fadeIn flex flex-col items-center">
+            <h2 className="text-4xl font-bold text-white mb-12">Production Finished</h2>
+            <div className="flex flex-col lg:flex-row gap-12 w-full justify-center items-center">
+               <div className="bg-black rounded-[2rem] border-8 border-slate-900 overflow-hidden shadow-2xl max-w-[320px]">
+                 <video src={project.finalVideoUrl} controls autoPlay className="aspect-[9/16] w-full" />
+               </div>
+               <div className="space-y-4 w-full lg:w-96">
+                 <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800">
+                   <h3 className="text-white font-bold mb-4">Export Summary</h3>
+                   <div className="space-y-2 text-sm">
+                     <p className="text-slate-500">Format: <span className="text-slate-200">{project.exportFormat.toUpperCase()}</span></p>
+                     <p className="text-slate-500">Resolution: <span className="text-slate-200">720x1280 (9:16)</span></p>
                    </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex flex-col gap-6 w-full lg:w-96">
-                   <div className="glass-card p-8 rounded-2xl border border-slate-700/50">
-                      <h3 className="font-bold text-xl mb-2 text-white">Project Details</h3>
-                      <div className="space-y-4 mb-8">
-                         <div>
-                            <span className="text-slate-500 text-xs uppercase font-bold tracking-wider">Topic</span>
-                            <p className="text-slate-300 font-medium">{project.topic}</p>
-                         </div>
-                         <div>
-                            <span className="text-slate-500 text-xs uppercase font-bold tracking-wider">Style</span>
-                            <p className="text-slate-300 font-medium">{project.style}</p>
-                         </div>
-                         <div>
-                            <span className="text-slate-500 text-xs uppercase font-bold tracking-wider">Duration</span>
-                            <p className="text-slate-300 font-medium">~60 Seconds</p>
-                         </div>
-                      </div>
-                      
-                      <Button onClick={handleDownload} variant="glow" className="w-full mb-4 py-4 text-lg">
-                         <Download size={20} /> Download Video
-                      </Button>
-                      
-                      <Button onClick={() => setStep('INPUT')} variant="outline" className="w-full">
-                         <RotateCcw size={18} /> Create New Reel
-                      </Button>
-                   </div>
-                </div>
-             </div>
+                   <Button onClick={handleDownload} variant="glow" className="w-full mt-8 py-4"><Download /> Download Video</Button>
+                   <Button onClick={() => window.location.reload()} variant="outline" className="w-full mt-4"><RotateCcw /> Create New</Button>
+                 </div>
+               </div>
+            </div>
           </div>
         );
     }
   };
 
   return (
-    <div className="min-h-screen">
-      {/* Navbar */}
-      <nav className="p-4 border-b border-white/5 bg-slate-900/50 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-           <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-tr from-blue-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-                 <Clapperboard size={20} className="text-white" />
-              </div>
-              <span className="font-bold text-xl tracking-tight text-white">ReelSmith AI</span>
-           </div>
-           
-           {/* Only show stepper if we have started */}
-           {step !== 'INPUT' && (
-             <div className="hidden md:block">
-               <div className="scale-75 origin-right">
-                 {/* Compact stepper for nav */}
-                 <div className="flex items-center gap-2 text-sm font-medium text-slate-400">
-                    <span className={step === 'SCRIPT' ? 'text-white' : ''}>Script</span>
-                    <ChevronRight size={14} />
-                    <span className={step === 'STYLE' ? 'text-white' : ''}>Style</span>
-                    <ChevronRight size={14} />
-                    <span className={step === 'RESULT' ? 'text-white' : ''}>Result</span>
-                 </div>
-               </div>
-             </div>
-           )}
-           
-           <div>
-             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-700 to-slate-800 border border-slate-600"></div>
-           </div>
+    <div className="min-h-screen text-slate-200">
+      <nav className="p-6 border-b border-slate-800/50 flex justify-between items-center glass sticky top-0 z-50">
+        <div className="flex items-center gap-2 font-black text-2xl tracking-tighter text-white">
+          <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center"><Clapperboard size={20}/></div>
+          ReelSmith AI
         </div>
+        {step !== 'INPUT' && <StepIndicator currentStep={step} />}
       </nav>
-      
-      {/* Mobile Stepper Container */}
-      {step !== 'INPUT' && step !== 'RESULT' && (
-        <div className="md:hidden px-4 pt-6 pb-2">
-           <StepIndicator currentStep={step} />
-        </div>
-      )}
-      
-      {/* Desktop Stepper */}
-      {step !== 'INPUT' && step !== 'RESULT' && (
-        <div className="hidden md:block pt-8 px-6">
-           <StepIndicator currentStep={step} />
-        </div>
-      )}
-
-      <main className="p-6 md:p-8 max-w-7xl mx-auto">
-        {renderContent()}
-      </main>
+      <main className="p-8">{renderContent()}</main>
     </div>
-  );
-}
-
-// Icon helper
-function CheckIcon({ size = 24, ...props }: { size?: number, [key: string]: any }) {
-  return (
-    <svg 
-      width={size} 
-      height={size} 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="3" 
-      strokeLinecap="round" 
-      strokeLinejoin="round" 
-      {...props}
-    >
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
   );
 }

@@ -1,42 +1,48 @@
+
 import { GeneratedSegment } from "../types";
 
 export async function renderVideo(
   segments: GeneratedSegment[], 
-  onProgress: (status: string) => void
-): Promise<string> {
+  onProgress: (status: string) => void,
+  options: { showCaptions?: boolean; format?: 'webm' | 'mp4' } = {}
+): Promise<{ url: string; actualMime: string }> {
+  const { showCaptions = true, format = 'mp4' } = options;
   const canvas = document.createElement('canvas');
-  // Set dimensions for YouTube Shorts (Vertical 1080p)
-  // We use slightly lower resolution for performance during client-side rendering if needed, 
-  // but let's try full HD.
-  const WIDTH = 720; // 720p width
-  const HEIGHT = 1280; // 720p height (9:16)
+  const WIDTH = 720;
+  const HEIGHT = 1280;
   
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
   const ctx = canvas.getContext('2d');
-  
-  if (!ctx) throw new Error("Could not get canvas context");
+  if (!ctx) throw new Error("Canvas context failed");
 
-  // Setup MediaRecorder
-  const stream = canvas.captureStream(30); // 30 FPS
+  const stream = canvas.captureStream(30);
   const audioContext = new AudioContext();
-  const dest = audioContext.createMediaStreamDestination();
   
-  // Mix audio into the stream
+  // CRITICAL: Handle browser autoplay policy
+  if (audioContext.state === 'suspended') {
+    await audioContext.resume();
+  }
+
+  const dest = audioContext.createMediaStreamDestination();
   const mixedStream = new MediaStream([
     ...stream.getVideoTracks(),
     ...dest.stream.getAudioTracks()
   ]);
 
-  // Prefer VP9 for better quality/size, fallback to default
-  let mimeType = 'video/webm;codecs=vp9';
-  if (!MediaRecorder.isTypeSupported(mimeType)) {
-    mimeType = 'video/webm'; // fallback
+  let mimeType = '';
+  const mp4Types = ['video/mp4;codecs=avc1', 'video/mp4'];
+  const webmTypes = ['video/webm;codecs=vp9', 'video/webm'];
+
+  if (format === 'mp4') {
+    mimeType = mp4Types.find(t => MediaRecorder.isTypeSupported(t)) || webmTypes.find(t => MediaRecorder.isTypeSupported(t)) || '';
+  } else {
+    mimeType = webmTypes.find(t => MediaRecorder.isTypeSupported(t)) || mp4Types.find(t => MediaRecorder.isTypeSupported(t)) || '';
   }
 
   const mediaRecorder = new MediaRecorder(mixedStream, {
     mimeType,
-    videoBitsPerSecond: 2500000 // 2.5 Mbps
+    videoBitsPerSecond: 6000000 // Higher bitrate for quality
   });
 
   const chunks: Blob[] = [];
@@ -46,73 +52,78 @@ export async function renderVideo(
 
   return new Promise(async (resolve, reject) => {
     mediaRecorder.onstop = () => {
-      const blob = new Blob(chunks, { type: 'video/webm' });
+      const blob = new Blob(chunks, { type: mimeType });
       const url = URL.createObjectURL(blob);
       audioContext.close();
-      resolve(url);
+      resolve({ url, actualMime: mimeType });
     };
 
     mediaRecorder.start();
 
-    // Helper to draw image cover
-    const drawImage = (img: HTMLImageElement) => {
-       const r = WIDTH / HEIGHT;
-       const ir = img.width / img.height;
-       let sw, sh, sx, sy;
-       if (ir > r) {
-          sh = img.height;
-          sw = img.height * r;
-          sx = (img.width - sw) / 2;
-          sy = 0;
-       } else {
-          sw = img.width;
-          sh = img.width / r;
-          sx = 0;
-          sy = (img.height - sh) / 2;
-       }
-       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, WIDTH, HEIGHT);
-    };
-
-    // Helper to draw text
-    const drawText = (text: string) => {
-        // Overlay gradient
-        const gradient = ctx.createLinearGradient(0, HEIGHT * 0.6, 0, HEIGHT);
-        gradient.addColorStop(0, 'rgba(0,0,0,0)');
-        gradient.addColorStop(0.5, 'rgba(0,0,0,0.7)');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, HEIGHT * 0.6, WIDTH, HEIGHT * 0.4);
-
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.font = 'bold 36px Inter, sans-serif';
-        ctx.shadowColor = 'black';
-        ctx.shadowBlur = 4;
-        ctx.shadowOffsetX = 2;
-        ctx.shadowOffsetY = 2;
-
-        const words = text.split(' ');
-        let line = '';
-        let y = HEIGHT * 0.8;
-        const maxWidth = WIDTH * 0.85;
-        const lineHeight = 50;
-
-        for (let n = 0; n < words.length; n++) {
-          const testLine = line + words[n] + ' ';
-          const metrics = ctx.measureText(testLine);
-          if (metrics.width > maxWidth && n > 0) {
-            ctx.fillText(line, WIDTH / 2, y);
-            line = words[n] + ' ';
-            y += lineHeight;
-          } else {
-            line = testLine;
-          }
-        }
-        ctx.fillText(line, WIDTH / 2, y);
+    const drawText = (text: string, elapsedS: number, totalS: number) => {
+        if (!showCaptions) return;
         
-        ctx.shadowColor = 'transparent';
+        // Relative Typography
+        const fontSize = Math.floor(HEIGHT * 0.035);
+        ctx.font = `bold ${fontSize}px "Plus Jakarta Sans", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        const words = text.split(' ');
+        const totalChars = words.reduce((acc, w) => acc + w.length, 0);
+        let cumulativeS = 0;
+        let activeIdx = -1;
+
+        for (let i = 0; i < words.length; i++) {
+           const wordDur = (words[i].length / totalChars) * totalS;
+           if (elapsedS >= cumulativeS && elapsedS < cumulativeS + wordDur) {
+              activeIdx = i;
+              break;
+           }
+           cumulativeS += wordDur;
+        }
+
+        const maxWidth = WIDTH * 0.85;
+        const lines: string[][] = [];
+        let currentLine: string[] = [];
+        words.forEach(word => {
+          if (ctx.measureText([...currentLine, word].join(' ')).width > maxWidth) {
+            lines.push(currentLine);
+            currentLine = [word];
+          } else {
+            currentLine.push(word);
+          }
+        });
+        lines.push(currentLine);
+
+        let wordCounter = 0;
+        const startY = HEIGHT * 0.8;
+        const lineHeight = fontSize * 1.35;
+        
+        lines.forEach((line, lineIdx) => {
+          const y = startY + (lineIdx * lineHeight);
+          const lineWidth = ctx.measureText(line.join(' ')).width;
+          let x = (WIDTH - lineWidth) / 2;
+
+          line.forEach(word => {
+            const wordWidth = ctx.measureText(word).width;
+            const isActive = wordCounter === activeIdx;
+            if (isActive) {
+               ctx.save();
+               ctx.fillStyle = '#fbbf24'; 
+               ctx.beginPath();
+               ctx.roundRect(x - 6, y - lineHeight/2, wordWidth + 12, lineHeight, 8);
+               ctx.fill();
+               ctx.restore();
+            }
+            ctx.fillStyle = isActive ? '#000' : '#fff';
+            ctx.fillText(word, x + wordWidth / 2, y);
+            x += wordWidth + ctx.measureText(' ').width;
+            wordCounter++;
+          });
+        });
     };
 
-    // Preload images
     const images: HTMLImageElement[] = [];
     for (const seg of segments) {
         const img = new Image();
@@ -121,60 +132,31 @@ export async function renderVideo(
         images.push(img);
     }
 
-    // Playback loop
     for (let i = 0; i < segments.length; i++) {
         const seg = segments[i];
         if (!seg.audioUrl) continue;
-
-        onProgress(`Rendering Scene ${i + 1}/${segments.length}`);
-
-        // Fetch audio data
+        onProgress(`Finalizing Scene ${i + 1}/${segments.length}`);
         const response = await fetch(seg.audioUrl);
-        const arrayBuffer = await response.arrayBuffer();
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        
-        // Play Audio
+        const audioBuffer = await audioContext.decodeAudioData(await response.arrayBuffer());
         const source = audioContext.createBufferSource();
         source.buffer = audioBuffer;
         source.connect(dest);
         source.start();
 
-        // Draw Loop for the duration of this segment
         const startTime = Date.now();
         const durationMs = audioBuffer.duration * 1000;
-        
-        // Animation loop for this segment
-        await new Promise<void>(resolveSegment => {
-            function animate() {
+        await new Promise<void>(res => {
+            const anim = () => {
                 const elapsed = Date.now() - startTime;
-                
-                // Draw current frame
-                ctx!.fillStyle = '#000';
-                ctx!.fillRect(0, 0, WIDTH, HEIGHT);
-                
-                if (images[i]) {
-                    // Optional: Add slight zoom effect
-                    // const scale = 1 + (elapsed / durationMs) * 0.05;
-                    // ctx?.save();
-                    // ctx?.translate(WIDTH/2, HEIGHT/2);
-                    // ctx?.scale(scale, scale);
-                    // ctx?.translate(-WIDTH/2, -HEIGHT/2);
-                    drawImage(images[i]);
-                    // ctx?.restore();
-                }
-
-                drawText(seg.narration);
-
-                if (elapsed < durationMs) {
-                    requestAnimationFrame(animate);
-                } else {
-                    resolveSegment();
-                }
-            }
-            animate();
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, WIDTH, HEIGHT);
+                if (images[i]) ctx.drawImage(images[i], 0, 0, WIDTH, HEIGHT);
+                drawText(seg.narration, elapsed / 1000, audioBuffer.duration);
+                if (elapsed < durationMs) requestAnimationFrame(anim); else res();
+            };
+            anim();
         });
     }
-
     mediaRecorder.stop();
   });
 }

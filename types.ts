@@ -1,3 +1,4 @@
+
 export enum VisualStyle {
   CHALKBOARD = 'Chalkboard',
   WHITEBOARD = 'Whiteboard',
@@ -6,6 +7,8 @@ export enum VisualStyle {
   REALISTIC = 'Realistic',
   CUSTOM = 'Custom'
 }
+
+export type VoiceName = 'Kore' | 'Puck' | 'Charon' | 'Fenrir' | 'Zephyr';
 
 export interface ScriptSegment {
   id: string;
@@ -24,7 +27,10 @@ export interface GeneratedSegment extends ScriptSegment {
 export interface ProjectState {
   topic: string;
   style: VisualStyle;
+  voice: VoiceName;
   customStylePrompt?: string;
+  showCaptions: boolean;
+  exportFormat: 'webm' | 'mp4';
   segments: GeneratedSegment[];
   finalVideoUrl?: string;
 }
