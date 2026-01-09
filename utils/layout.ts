@@ -9,7 +9,7 @@ export interface WordLayout {
 
 export interface LineLayout {
   words: WordLayout[];
-  y: number;
+  y: number; // Relative Y from top of text block
   width: number;
 }
 
@@ -18,6 +18,7 @@ export interface TextLayout {
   flattenedWords: WordLayout[];
   totalChars: number;
   fontSize: number;
+  totalHeight: number;
 }
 
 /**
@@ -27,12 +28,11 @@ export function calculateTextLayout(
   ctx: CanvasRenderingContext2D,
   text: string,
   maxWidth: number,
-  startY: number,
   fontSize: number,
-  lineHeightScale: number = 1.35
+  lineHeightScale: number = 1.35 // Increased line height for better spacing
 ): TextLayout {
-  ctx.font = `bold ${fontSize}px "Plus Jakarta Sans", sans-serif`;
-  const rawWords = text.split(' ');
+  ctx.font = `800 ${fontSize}px "Plus Jakarta Sans", sans-serif`;
+  const rawWords = text.split(/\s+/).filter(Boolean);
   const spaceWidth = ctx.measureText(' ').width;
 
   const lines: WordLayout[][] = [];
@@ -57,16 +57,15 @@ export function calculateTextLayout(
   const lineHeight = fontSize * lineHeightScale;
   const flattenedWords: WordLayout[] = [];
   
-  // Heuristic: commas and periods get more weight (pause time)
   const getWeight = (t: string) => {
     let w = t.length;
-    if (t.endsWith(',') || t.endsWith(';')) w += 4;
-    if (t.endsWith('.') || t.endsWith('!') || t.endsWith('?')) w += 8;
-    return Math.max(1, w);
+    const clean = t.replace(/[.,!?;]/g, '');
+    const diff = t.length - clean.length;
+    return Math.max(1, w + (diff * 5)); // Higher weight for punctuation pauses
   };
 
   const weights = lines.flatMap(l => l.map(w => getWeight(w.text)));
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
 
   let cumulativeWeight = 0;
   const layoutLines: LineLayout[] = lines.map((line, idx) => {
@@ -89,7 +88,7 @@ export function calculateTextLayout(
 
     return {
       words: positionedWords,
-      y: startY + (idx * lineHeight),
+      y: idx * lineHeight,
       width: lineWidth
     };
   });
@@ -98,6 +97,7 @@ export function calculateTextLayout(
     lines: layoutLines,
     flattenedWords,
     totalChars: text.length,
-    fontSize
+    fontSize,
+    totalHeight: lines.length * lineHeight
   };
 }
