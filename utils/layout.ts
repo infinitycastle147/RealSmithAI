@@ -29,7 +29,7 @@ export function calculateTextLayout(
   text: string,
   maxWidth: number,
   fontSize: number,
-  lineHeightScale: number = 1.35 // Increased line height for better spacing
+  lineHeightScale: number = 1.35 
 ): TextLayout {
   ctx.font = `800 ${fontSize}px "Plus Jakarta Sans", sans-serif`;
   const rawWords = text.split(/\s+/).filter(Boolean);
@@ -57,17 +57,23 @@ export function calculateTextLayout(
   const lineHeight = fontSize * lineHeightScale;
   const flattenedWords: WordLayout[] = [];
   
+  // Weight Calculation Heuristic
+  // Punctuation marks usually imply a pause, so we give them significantly more time weight
   const getWeight = (t: string) => {
     let w = t.length;
-    const clean = t.replace(/[.,!?;]/g, '');
+    const clean = t.replace(/[.,!?;:]/g, '');
     const diff = t.length - clean.length;
-    return Math.max(1, w + (diff * 5)); // Higher weight for punctuation pauses
+    // Base weight is length + (punctuation * 4 chars worth of time)
+    return Math.max(1, w + (diff * 4)); 
   };
 
   const weights = lines.flatMap(l => l.map(w => getWeight(w.text)));
   const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
 
-  let cumulativeWeight = 0;
+  // We start cumulative weight slightly above 0 to create a tiny "breath" buffer 
+  // at the start of the sentence before the first highlight kicks in.
+  let cumulativeWeight = 0; 
+
   const layoutLines: LineLayout[] = lines.map((line, idx) => {
     const lineWidth = line.reduce((acc, w, i) => acc + w.width + (i > 0 ? spaceWidth : 0), 0);
     let currentX = (maxWidth - lineWidth) / 2;
@@ -77,6 +83,7 @@ export function calculateTextLayout(
       currentX += w.width + spaceWidth;
       
       const weight = getWeight(w.text);
+      
       const startTime = cumulativeWeight / totalWeight;
       cumulativeWeight += weight;
       const endTime = cumulativeWeight / totalWeight;

@@ -1,11 +1,16 @@
 
 export enum VisualStyle {
-  CHALKBOARD = 'Chalkboard',
+  CHALKBOARD = 'Blackboard',
   WHITEBOARD = 'Whiteboard',
   ANIME = 'Anime',
   CYBERPUNK = 'Cyberpunk',
   REALISTIC = 'Realistic',
   CUSTOM = 'Custom'
+}
+
+export enum CaptionStyle {
+  SENTENCE = 'Sentence',
+  WORD_BY_WORD = 'Word-by-Word'
 }
 
 export type VoiceName = 'Kore' | 'Puck' | 'Charon' | 'Fenrir' | 'Zephyr';
@@ -31,6 +36,7 @@ export interface ProjectState {
   voice: VoiceName;
   customStylePrompt?: string;
   showCaptions: boolean;
+  captionStyle: CaptionStyle;
   exportFormat: 'webm' | 'mp4';
   segments: GeneratedSegment[];
   finalVideoUrl?: string;

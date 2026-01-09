@@ -1,14 +1,14 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Sparkles, Video, Wand2, Type as TypeIcon, Palette, Film, Download, RotateCcw, Clapperboard, ChevronRight, Check, Settings2, Mic, PencilLine, Trash2, Plus, ExternalLink, Globe, Search } from 'lucide-react';
+import { Sparkles, Video, Wand2, Type as TypeIcon, Palette, Film, Download, RotateCcw, Clapperboard, ChevronRight, Check, Settings2, Mic, PencilLine, Trash2, Plus, ExternalLink, Globe, Search, ALargeSmall, AlignCenter } from 'lucide-react';
 import { Button } from './components/Button';
 import { StepIndicator } from './components/StepIndicator';
 import { generateScript, generateImageForSegment, generateVoiceForSegment } from './services/gemini';
 import { renderVideo } from './utils/videoGenerator';
-import { AppStep, VisualStyle, ProjectState, VoiceName, GeneratedSegment } from './types';
+import { AppStep, VisualStyle, ProjectState, VoiceName, GeneratedSegment, CaptionStyle } from './types';
 
 const STYLE_PRESETS = [
-  { id: VisualStyle.CHALKBOARD, label: 'Chalkboard', desc: 'Hand-sketched aesthetic', color: 'from-emerald-800 to-emerald-950' },
+  { id: VisualStyle.CHALKBOARD, label: 'Blackboard', desc: 'Classic academic aesthetic with white chalk textures', color: 'from-gray-800 to-gray-950' },
   { id: VisualStyle.ANIME, label: 'Anime', desc: 'Vibrant character-driven', color: 'from-indigo-600 to-purple-800' },
   { id: VisualStyle.CYBERPUNK, label: 'Cyberpunk', desc: 'Neon futuristic sci-fi', color: 'from-fuchsia-700 to-purple-900' },
   { id: VisualStyle.REALISTIC, label: 'Realistic', desc: 'High-fidelity cinematic', color: 'from-slate-700 to-slate-900' },
@@ -93,6 +93,7 @@ export default function App() {
     style: VisualStyle.CHALKBOARD, 
     voice: 'Kore', 
     showCaptions: true, 
+    captionStyle: CaptionStyle.SENTENCE,
     exportFormat: 'mp4', 
     segments: []
   });
@@ -160,6 +161,7 @@ export default function App() {
       setLoadingMessage("Assembling final video...");
       const { url, actualMime } = await renderVideo(sorted, (m) => setLoadingMessage(m), { 
         showCaptions: project.showCaptions, 
+        captionStyle: project.captionStyle,
         format: project.exportFormat 
       });
       
@@ -306,45 +308,77 @@ export default function App() {
               ))}
             </div>
 
-            <div className="glass rounded-[3rem] p-10 border border-white/5 flex flex-col lg:flex-row gap-12 items-center justify-between shadow-2xl">
-              <div className="space-y-8 w-full">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                  <div className="space-y-4">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Mic size={14} className="text-blue-500" /> Narrative Voice</label>
-                    <div className="flex flex-wrap gap-2">
-                      {VOICES.map(v => (
-                        <button 
-                          key={v} 
-                          onClick={() => setProject(p => ({ ...p, voice: v }))} 
-                          className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all border
-                            ${project.voice === v 
-                              ? 'bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-900/40 scale-105' 
-                              : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}
-                        >
-                          {v}
-                        </button>
-                      ))}
-                    </div>
+            <div className="glass rounded-[3rem] p-10 border border-white/5 flex flex-col gap-12 shadow-2xl">
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+                {/* Voice Selection */}
+                <div className="space-y-4">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                    <Mic size={14} className="text-blue-500" /> Narrative Voice
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {VOICES.map(v => (
+                      <button 
+                        key={v} 
+                        onClick={() => setProject(p => ({ ...p, voice: v }))} 
+                        className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all border
+                          ${project.voice === v 
+                            ? 'bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-900/40 scale-105' 
+                            : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}
+                      >
+                        {v}
+                      </button>
+                    ))}
                   </div>
-                  
-                  <div className="space-y-4">
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Palette size={14} className="text-purple-500" /> Custom Instruction</label>
-                    <div className={`relative transition-all ${project.style === VisualStyle.CUSTOM ? 'opacity-100' : 'opacity-40 cursor-not-allowed'}`}>
-                      <PencilLine className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
-                      <input 
-                        type="text"
-                        disabled={project.style !== VisualStyle.CUSTOM}
-                        placeholder="e.g. Cinematic 3D, Cyber-Noir..."
-                        className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-12 pr-4 py-3 text-sm text-white focus:border-purple-500 outline-none transition-all"
-                        value={project.customStylePrompt || ''}
-                        onChange={(e) => setProject(p => ({ ...p, style: VisualStyle.CUSTOM, customStylePrompt: e.target.value }))}
-                      />
-                    </div>
+                </div>
+                
+                {/* Caption Style Selection */}
+                <div className="space-y-4">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                    <ALargeSmall size={14} className="text-emerald-500" /> Caption Style
+                  </label>
+                  <div className="flex flex-col gap-3">
+                    <button 
+                      onClick={() => setProject(p => ({ ...p, captionStyle: CaptionStyle.SENTENCE }))} 
+                      className={`flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-bold transition-all border
+                        ${project.captionStyle === CaptionStyle.SENTENCE
+                          ? 'bg-emerald-600/20 border-emerald-500 text-white shadow-lg shadow-emerald-900/20' 
+                          : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'}`}
+                    >
+                      <AlignCenter size={16} /> Classic (Sentences)
+                    </button>
+                    <button 
+                      onClick={() => setProject(p => ({ ...p, captionStyle: CaptionStyle.WORD_BY_WORD }))} 
+                      className={`flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-bold transition-all border
+                        ${project.captionStyle === CaptionStyle.WORD_BY_WORD
+                          ? 'bg-purple-600/20 border-purple-500 text-white shadow-lg shadow-purple-900/20' 
+                          : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'}`}
+                    >
+                      <TypeIcon size={16} /> Viral (Word-by-Word)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Custom Style Input */}
+                <div className="space-y-4">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                    <Palette size={14} className="text-purple-500" /> Custom Instruction
+                  </label>
+                  <div className={`relative transition-all ${project.style === VisualStyle.CUSTOM ? 'opacity-100' : 'opacity-40 cursor-not-allowed'}`}>
+                    <PencilLine className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                    <input 
+                      type="text"
+                      disabled={project.style !== VisualStyle.CUSTOM}
+                      placeholder="e.g. Cinematic 3D, Cyber-Noir..."
+                      className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-12 pr-4 py-3 text-sm text-white focus:border-purple-500 outline-none transition-all"
+                      value={project.customStylePrompt || ''}
+                      onChange={(e) => setProject(p => ({ ...p, style: VisualStyle.CUSTOM, customStylePrompt: e.target.value }))}
+                    />
                   </div>
                 </div>
               </div>
 
-              <div className="shrink-0 w-full lg:w-auto">
+              <div className="flex justify-end pt-4 border-t border-white/5">
                 <Button 
                   onClick={async () => {
                     setIsLoading(true);
@@ -362,7 +396,7 @@ export default function App() {
                     }
                   }} 
                   variant="glow" 
-                  className="w-full lg:w-auto px-12 py-7 text-xl rounded-2xl" 
+                  className="w-full lg:w-auto px-12 py-5 text-lg rounded-2xl" 
                   isLoading={isLoading}
                 >
                   {isLoading ? loadingMessage : "Initialize Production"}

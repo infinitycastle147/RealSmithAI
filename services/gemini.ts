@@ -1,11 +1,12 @@
 
-import { GoogleGenAI, Type, Modality } from "@google/genai";
+import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
 import { ScriptSegment, VoiceName } from "../types";
 import { base64PcmToWavBlob } from "../utils/audio";
 
 let aiInstance: GoogleGenAI | null = null;
 const getAI = () => {
   if (!aiInstance) {
+    // strict adherence to SDK initialization with named parameter
     aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
   return aiInstance;
@@ -17,6 +18,29 @@ const getDecoderCtx = () => {
     decoderCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
   }
   return decoderCtx;
+};
+
+/**
+ * Helper to strip markdown code blocks and find JSON array in response
+ */
+const cleanJsonOutput = (text: string): string => {
+  if (!text) return "[]";
+  let clean = text.trim();
+  
+  // Remove markdown code blocks if present
+  if (clean.includes('```')) {
+    clean = clean.replace(/```(?:json)?/g, '').replace(/```/g, '');
+  }
+
+  // Find the first '[' and last ']' to extract the array
+  const firstBracket = clean.indexOf('[');
+  const lastBracket = clean.lastIndexOf(']');
+  
+  if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+    clean = clean.substring(firstBracket, lastBracket + 1);
+  }
+
+  return clean;
 };
 
 /**
@@ -47,14 +71,11 @@ export const generateScript = async (topic: string, style: string): Promise<{ se
   Ensure the narration is punchy and the facts are up-to-date.`;
 
   try {
-    const response = await ai.models.generateContent({
+    const response: GenerateContentResponse = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: userPrompt,
       config: {
         systemInstruction,
-        maxOutputTokens: 8000,
-        // Using a healthy thinking budget for narrative planning
-        thinkingConfig: { thinkingBudget: 4000 },
         // Enabling Google Search Grounding for live information retrieval
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
@@ -72,15 +93,26 @@ export const generateScript = async (topic: string, style: string): Promise<{ se
       }
     });
 
+    // Robust text extraction and parsing
     const text = response.text || "[]";
-    const segments = JSON.parse(text);
+    const cleanedText = cleanJsonOutput(text);
+    
+    let segments;
+    try {
+        segments = JSON.parse(cleanedText);
+    } catch (e) {
+        console.error("JSON Parse Error on output:", cleanedText);
+        throw new Error("Failed to parse AI response");
+    }
+
     // Extract grounding chunks for factual transparency in the UI
     const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
 
     return {
       segments: segments.map((seg: any, index: number) => ({
         id: `seg-${index}-${Date.now()}`,
-        ...seg
+        narration: seg.narration || "",
+        visualDescription: seg.visualDescription || ""
       })),
       sources
     };
@@ -108,10 +140,17 @@ export const generateImageForSegment = async (description: string, style: string
       contents: { parts: [{ text: finalPrompt }] },
       config: { imageConfig: { aspectRatio: "9:16" } }
     });
-    const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
-    if (part?.inlineData) return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-    throw new Error("No image data");
+    
+    // Iterate through parts to find the image, as recommended
+    const parts = response.candidates?.[0]?.content?.parts || [];
+    for (const part of parts) {
+        if (part.inlineData && part.inlineData.mimeType.startsWith('image')) {
+             return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        }
+    }
+    throw new Error("No image data found in response");
   } catch (error) {
+    console.warn("Image generation failed, falling back to placeholder", error);
     return `https://picsum.photos/1080/1920?random=${Date.now()}`;
   }
 };
@@ -121,24 +160,35 @@ export const generateImageForSegment = async (description: string, style: string
  */
 export const generateVoiceForSegment = async (text: string, voice: VoiceName = 'Kore'): Promise<{ audioUrl: string, duration: number, buffer: AudioBuffer }> => {
   const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-preview-tts",
-    contents: [{ parts: [{ text: text.trim() }] }],
-    config: {
-      responseModalities: [Modality.AUDIO],
-      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } }
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: [{ parts: [{ text: text.trim() }] }],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } }
+      }
+    });
+
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64Audio) throw new Error("No audio data received");
+
+    // Use default sample rate if not specified, but usually it's 24000 for this model
+    const wavBlob = base64PcmToWavBlob(base64Audio, 24000); 
+    const audioUrl = URL.createObjectURL(wavBlob);
+    
+    const ctx = getDecoderCtx();
+    // Ensure context is running (browsers might suspend it)
+    if (ctx.state === 'suspended') {
+        await ctx.resume();
     }
-  });
 
-  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  if (!base64Audio) throw new Error("No audio data");
-
-  const wavBlob = base64PcmToWavBlob(base64Audio, 24000); 
-  const audioUrl = URL.createObjectURL(wavBlob);
-  
-  const ctx = getDecoderCtx();
-  const arrayBuffer = await wavBlob.arrayBuffer();
-  const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-  
-  return { audioUrl, duration: audioBuffer.duration, buffer: audioBuffer };
+    const arrayBuffer = await wavBlob.arrayBuffer();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    
+    return { audioUrl, duration: audioBuffer.duration, buffer: audioBuffer };
+  } catch (error) {
+    console.error("Voice generation failed:", error);
+    throw error;
+  }
 };

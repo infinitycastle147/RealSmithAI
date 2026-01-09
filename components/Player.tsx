@@ -1,11 +1,11 @@
 
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import { GeneratedSegment } from '../types';
+import { CaptionStyle, GeneratedSegment } from '../types';
 import { Play, Pause, RotateCcw } from 'lucide-react';
 import { Button } from './Button';
 import { calculateTextLayout, TextLayout } from '../utils/layout';
 
-export const Player: React.FC<{ segments: GeneratedSegment[]; showCaptions?: boolean }> = ({ segments, showCaptions = true }) => {
+export const Player: React.FC<{ segments: GeneratedSegment[]; showCaptions?: boolean; captionStyle?: CaptionStyle }> = ({ segments, showCaptions = true, captionStyle = CaptionStyle.SENTENCE }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -20,8 +20,8 @@ export const Player: React.FC<{ segments: GeneratedSegment[]; showCaptions?: boo
     
     const h = 1920 / 2;
     const w = 1080 / 2;
-    // Reduced Font Size: 5% of height is more standard for long sentences
-    const fontSize = Math.floor(h * 0.05);
+    // Standard font size for sentence mode (Reduced to 3.5%)
+    const fontSize = Math.floor(h * 0.035);
     
     return new Map(segments.map(s => [
       s.id, 
@@ -29,16 +29,45 @@ export const Player: React.FC<{ segments: GeneratedSegment[]; showCaptions?: boo
     ]));
   }, [segments]);
 
+  // Handle Image Preloading and Cache Cleanup
   useEffect(() => {
+    // Clear cache if segments have completely changed (new project)
+    const currentImages = new Set(segments.map(s => s.imageUrl).filter(Boolean));
+    for (const [key] of imagesCache.current) {
+        if (!currentImages.has(key)) {
+            imagesCache.current.delete(key);
+        }
+    }
+
     const toLoad = segments.filter(s => s.imageUrl && !imagesCache.current.has(s.imageUrl));
-    if (toLoad.length === 0) return setIsReady(true);
+    if (toLoad.length === 0) {
+        setIsReady(true);
+        return;
+    }
+
     let loaded = 0;
+    let isMounted = true;
+
     toLoad.forEach(seg => {
+      if (!seg.imageUrl) return;
       const img = new Image();
-      img.src = seg.imageUrl!;
-      img.onload = () => { imagesCache.current.set(seg.imageUrl!, img); loaded++; if (loaded === toLoad.length) setIsReady(true); };
-      img.onerror = () => { loaded++; if (loaded === toLoad.length) setIsReady(true); };
+      img.src = seg.imageUrl;
+      img.onload = () => { 
+          if (!isMounted) return;
+          imagesCache.current.set(seg.imageUrl!, img); 
+          loaded++; 
+          if (loaded === toLoad.length) setIsReady(true); 
+      };
+      img.onerror = () => { 
+          if (!isMounted) return;
+          loaded++; 
+          if (loaded === toLoad.length) setIsReady(true); 
+      };
     });
+
+    return () => {
+        isMounted = false;
+    };
   }, [segments]);
 
   const draw = useCallback(() => {
@@ -75,51 +104,99 @@ export const Player: React.FC<{ segments: GeneratedSegment[]; showCaptions?: boo
 
     // 2. Draw Captions
     if (showCaptions && layout) {
-      ctx.font = `800 ${layout.fontSize}px "Plus Jakarta Sans", sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle'; // Center baseline for better vertical balance
-      
-      const blockWidth = w * 0.8;
-      const blockX = (w - blockWidth) / 2;
-      // Positioned higher than before to leave space for other UI elements and prevent overlap
-      const blockY = (h * 0.6) - (layout.totalHeight / 2);
+      if (captionStyle === CaptionStyle.WORD_BY_WORD) {
+        // --- Viral Word-by-Word Style ---
+        const activeWordIndex = layout.flattenedWords.findIndex(wd => progress >= wd.startTime && progress < wd.endTime);
+        const activeWord = layout.flattenedWords[activeWordIndex];
 
-      const activeWord = layout.flattenedWords.find(wd => progress >= wd.startTime && progress < wd.endTime);
-      
-      layout.lines.forEach(line => {
-        line.words.forEach(word => {
-          const x = blockX + word.x;
-          const y = blockY + line.y;
-          const isActive = word === activeWord;
+        if (activeWord) {
+          ctx.save();
+          // Large font for single word impact (Reduced to 8%)
+          const bigFontSize = Math.floor(h * 0.08); 
+          ctx.font = `900 ${bigFontSize}px "Plus Jakarta Sans", sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          
+          // Center screen
+          const cx = w / 2;
+          const cy = h / 2;
 
-          if (isActive) {
-            ctx.shadowColor = 'rgba(0,0,0,0.5)';
-            ctx.shadowBlur = 15;
-            
-            ctx.fillStyle = '#FACC15'; 
-            const paddingX = layout.fontSize * 0.2;
-            const paddingY = layout.fontSize * 0.1;
-            ctx.beginPath();
-            ctx.roundRect(x - paddingX, y - (layout.fontSize/2) - paddingY, word.width + (paddingX * 2), layout.fontSize + (paddingY * 2), 10);
-            ctx.fill();
-            
-            ctx.shadowBlur = 0;
-            ctx.fillStyle = '#000000';
-            ctx.fillText(word.text, x + word.width / 2, y);
-          } else {
-            ctx.lineJoin = 'round';
-            ctx.lineWidth = layout.fontSize * 0.2;
-            ctx.strokeStyle = '#000000';
-            ctx.strokeText(word.text, x + word.width / 2, y);
-            
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillText(word.text, x + word.width / 2, y);
-          }
+          // Deterministic rotation & color based on word index
+          const rotationSeed = (activeWordIndex * 1337) % 10; 
+          const rotationAngle = (rotationSeed - 5) * (Math.PI / 180); // +/- 5 degrees
+          
+          // Palette: Yellow, Green, Cyan, Pink, Orange
+          const colors = ['#FACC15', '#4ADE80', '#22D3EE', '#F472B6', '#FB923C'];
+          const color = colors[activeWordIndex % colors.length];
+
+          ctx.translate(cx, cy);
+          ctx.rotate(rotationAngle);
+
+          // Heavy Stroke
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = bigFontSize * 0.2;
+          ctx.strokeStyle = '#000000';
+          ctx.strokeText(activeWord.text, 0, 0);
+
+          // Drop Shadow
+          ctx.shadowColor = 'rgba(0,0,0,0.8)';
+          ctx.shadowBlur = 20;
+          ctx.shadowOffsetY = 10;
+          
+          // Fill
+          ctx.fillStyle = color;
+          ctx.fillText(activeWord.text, 0, 0);
+          
+          ctx.restore();
+        }
+
+      } else {
+        // --- Classic Sentence Style ---
+        ctx.font = `800 ${layout.fontSize}px "Plus Jakarta Sans", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        const blockWidth = w * 0.8;
+        const blockX = (w - blockWidth) / 2;
+        const blockY = (h * 0.6) - (layout.totalHeight / 2);
+
+        const activeWord = layout.flattenedWords.find(wd => progress >= wd.startTime && progress < wd.endTime);
+        
+        layout.lines.forEach(line => {
+          line.words.forEach(word => {
+            const x = blockX + word.x;
+            const y = blockY + line.y;
+            const isActive = word === activeWord;
+
+            if (isActive) {
+              ctx.shadowColor = 'rgba(0,0,0,0.5)';
+              ctx.shadowBlur = 15;
+              
+              ctx.fillStyle = '#FACC15'; 
+              const paddingX = layout.fontSize * 0.2;
+              const paddingY = layout.fontSize * 0.1;
+              ctx.beginPath();
+              ctx.roundRect(x - paddingX, y - (layout.fontSize/2) - paddingY, word.width + (paddingX * 2), layout.fontSize + (paddingY * 2), 10);
+              ctx.fill();
+              
+              ctx.shadowBlur = 0;
+              ctx.fillStyle = '#000000';
+              ctx.fillText(word.text, x + word.width / 2, y);
+            } else {
+              ctx.lineJoin = 'round';
+              ctx.lineWidth = layout.fontSize * 0.2;
+              ctx.strokeStyle = '#000000';
+              ctx.strokeText(word.text, x + word.width / 2, y);
+              
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillText(word.text, x + word.width / 2, y);
+            }
+          });
         });
-      });
+      }
     }
     ctx.restore();
-  }, [currentIndex, segments, isReady, showCaptions, layouts]);
+  }, [currentIndex, segments, isReady, showCaptions, layouts, captionStyle]);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -139,7 +216,7 @@ export const Player: React.FC<{ segments: GeneratedSegment[]; showCaptions?: boo
   const toggle = () => {
     if (!audioRef.current) return;
     if (audioRef.current.paused) { 
-      audioRef.current.play(); 
+      audioRef.current.play().catch(e => console.error("Playback failed", e)); 
       setIsPlaying(true); 
     } else { 
       audioRef.current.pause(); 

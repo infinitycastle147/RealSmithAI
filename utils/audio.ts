@@ -1,3 +1,4 @@
+
 // Utility to convert raw PCM data (Float32 or Int16) to WAV for browser playback
 
 export function pcmToWav(pcmData: Int16Array | Float32Array, sampleRate: number): Blob {
@@ -63,14 +64,54 @@ export function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
+/**
+ * Trims silence from BOTH ends of an Int16 PCM buffer.
+ * ensuring captions align perfectly with speech start.
+ */
+export function trimSilence(data: Int16Array, threshold = 0.01): Int16Array {
+  // 16-bit PCM range is -32768 to 32767. 
+  // Threshold 0.01 is ~327.
+  const intThreshold = 32768 * threshold;
+  
+  let start = 0;
+  let end = data.length - 1;
+
+  // Scan forward for first sound
+  while (start < end && Math.abs(data[start]) < intThreshold) {
+    start++;
+  }
+
+  // Scan backwards for last sound
+  while (end > start && Math.abs(data[end]) < intThreshold) {
+    end--;
+  }
+
+  // If the entire buffer is silence (start >= end), return a small empty buffer
+  if (start >= end) {
+    return new Int16Array(0);
+  }
+
+  // Add small padding (50ms) to both ends for natural attack/decay
+  // 24000 Hz * 0.05s = 1200 samples
+  const padding = 1200;
+  
+  // Adjust start/end with padding, clamping to bounds
+  const paddedStart = Math.max(0, start - padding);
+  const paddedEnd = Math.min(data.length, end + padding);
+
+  return data.subarray(paddedStart, paddedEnd);
+}
+
 export function base64PcmToWavBlob(base64Pcm: string, sampleRate: number = 24000): Blob {
     // 1. Decode Base64 to raw bytes
     const rawBytes = base64ToUint8Array(base64Pcm);
     
     // 2. Convert raw bytes (assuming Little Endian Int16 from Gemini) to Int16Array
-    // Note: Gemini Text-to-Speech typically returns 24kHz Linear16 PCM
     const int16Array = new Int16Array(rawBytes.buffer);
 
-    // 3. Wrap in WAV container
-    return pcmToWav(int16Array, sampleRate);
+    // 3. Trim silence from start AND end
+    const trimmed = trimSilence(int16Array);
+
+    // 4. Wrap in WAV container
+    return pcmToWav(trimmed, sampleRate);
 }
