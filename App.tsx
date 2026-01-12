@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Sparkles, Video, Wand2, Type as TypeIcon, Palette, Film, Download, RotateCcw, Clapperboard, ChevronRight, Check, Settings2, Mic, PencilLine, Trash2, Plus, ExternalLink, Globe, Search, ALargeSmall, AlignCenter } from 'lucide-react';
+import { Sparkles, Video, Wand2, Type as TypeIcon, Palette, Film, Download, RotateCcw, Clapperboard, ChevronRight, Check, Settings2, Mic, PencilLine, Trash2, Plus, ExternalLink, Globe, Search, ALargeSmall, AlignCenter, Zap, Brain, Layers, Smartphone, Play } from 'lucide-react';
 import { Button } from './components/Button';
 import { StepIndicator } from './components/StepIndicator';
 import { generateScript, generateImageForSegment, generateVoiceForSegment } from './services/gemini';
@@ -15,6 +14,12 @@ const STYLE_PRESETS = [
 ];
 
 const VOICES: VoiceName[] = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'];
+
+const EXAMPLES = [
+  { title: "The Stoic Mindset", views: "1.2M", style: "Realistic", color: "from-stone-800 to-stone-900", img: "https://images.unsplash.com/photo-1535905557558-afc4877a26fc?w=800&q=80" },
+  { title: "Neon Tokyo Secrets", views: "850K", style: "Cyberpunk", color: "from-fuchsia-900 to-purple-900", img: "https://images.unsplash.com/photo-1542051841857-5f90071e7989?w=800&q=80" },
+  { title: "Coffee History", views: "2.4M", style: "Vintage", color: "from-amber-900 to-orange-900", img: "https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=800&q=80" }
+];
 
 const SceneCard = React.memo(({ 
   segment, 
@@ -218,7 +223,7 @@ export default function App() {
           <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/40">
             <Clapperboard size={20} className="text-white" />
           </div>
-          <span className="hidden sm:inline">ReelSmith AI</span>
+          <span className="hidden sm:inline">ReelZero</span>
         </div>
         {step !== 'INPUT' && (
           <div className="flex-1 max-w-xl px-8">
@@ -235,45 +240,108 @@ export default function App() {
       
       <main className="container mx-auto px-4 py-12 max-w-6xl">
         {step === 'INPUT' && (
-          <div className="flex flex-col items-center justify-center min-h-[70vh] animate-fadeIn text-center">
-            <div className="w-full max-w-4xl space-y-12">
-              <div className="space-y-6">
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold uppercase tracking-widest animate-pulse">
-                  <Sparkles size={14} /> AI Video Production
+          <div className="flex flex-col gap-24 animate-fadeIn">
+            
+            {/* HERO SECTION */}
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+              <div className="w-full max-w-4xl space-y-12">
+                <div className="space-y-6">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold uppercase tracking-widest animate-pulse">
+                    <Sparkles size={14} /> AI Video Production
+                  </div>
+                  <h1 className="text-6xl md:text-8xl font-black text-white leading-[1.1] tracking-tight">
+                    Turn Ideas into <br />
+                    <span className="bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-500 bg-clip-text text-transparent">Viral Shorts</span>
+                  </h1>
+                  <p className="text-slate-400 text-xl max-w-2xl mx-auto leading-relaxed">
+                    Experience the future of content creation. Grounded AI scripting, professional voiceovers, and cinematic visuals—all generated in seconds.
+                  </p>
                 </div>
-                <h1 className="text-6xl md:text-8xl font-black text-white leading-[1.1] tracking-tight">
-                  Turn Ideas into <br />
-                  <span className="bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-500 bg-clip-text text-transparent">Viral Shorts</span>
-                </h1>
-                <p className="text-slate-400 text-xl max-w-2xl mx-auto leading-relaxed">
-                  Experience the future of content creation. Grounded AI scripting, professional voiceovers, and cinematic visuals—all generated in seconds.
-                </p>
-              </div>
 
-              <div className="bg-slate-900/40 backdrop-blur-xl p-3 rounded-[2.5rem] flex flex-col sm:flex-row border border-white/10 max-w-2xl mx-auto group focus-within:border-blue-500/50 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all shadow-2xl">
-                <input 
-                  value={project.topic} 
-                  onChange={(e) => setProject(p => ({ ...p, topic: e.target.value }))} 
-                  placeholder="What's your story? (e.g. Life of Steve Jobs)" 
-                  className="w-full bg-transparent px-6 py-5 outline-none text-xl text-white placeholder:text-slate-600 font-medium" 
-                  onKeyDown={(e) => e.key === 'Enter' && project.topic && setStep('STYLE')} 
-                />
-                <Button 
-                  onClick={() => setStep('STYLE')} 
-                  disabled={!project.topic.trim()} 
-                  variant="glow"
-                  className="sm:w-48 py-5 rounded-[2rem] text-lg font-bold"
-                >
-                  Create Now
-                </Button>
-              </div>
-              
-              <div className="flex items-center justify-center gap-8 text-slate-500 text-sm font-medium pt-8">
-                 <div className="flex items-center gap-2"><Check size={16} className="text-emerald-500"/> Fact-checked</div>
-                 <div className="flex items-center gap-2"><Check size={16} className="text-emerald-500"/> Vertical 9:16</div>
-                 <div className="flex items-center gap-2"><Check size={16} className="text-emerald-500"/> No Editing Required</div>
+                <div className="bg-slate-900/40 backdrop-blur-xl p-3 rounded-[2.5rem] flex flex-col sm:flex-row border border-white/10 max-w-2xl mx-auto group focus-within:border-blue-500/50 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all shadow-2xl relative z-10">
+                  <input 
+                    value={project.topic} 
+                    onChange={(e) => setProject(p => ({ ...p, topic: e.target.value }))} 
+                    placeholder="What's your story? (e.g. Life of Steve Jobs)" 
+                    className="w-full bg-transparent px-6 py-5 outline-none text-xl text-white placeholder:text-slate-600 font-medium" 
+                    onKeyDown={(e) => e.key === 'Enter' && project.topic && setStep('STYLE')} 
+                  />
+                  <Button 
+                    onClick={() => setStep('STYLE')} 
+                    disabled={!project.topic.trim()} 
+                    variant="glow"
+                    className="sm:w-48 py-5 rounded-[2rem] text-lg font-bold"
+                  >
+                    Create Now
+                  </Button>
+                </div>
               </div>
             </div>
+
+            {/* FEATURES GRID */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[
+                { 
+                  icon: <Brain size={24} className="text-purple-400" />, 
+                  title: "Smart Scripting", 
+                  desc: "Gemini 3-powered research creates engaging narrative arcs with hooks, value, and strong CTAs." 
+                },
+                { 
+                  icon: <Mic size={24} className="text-blue-400" />, 
+                  title: "Human Voices", 
+                  desc: "Ultra-realistic text-to-speech engine with emotional range and perfect pronunciation." 
+                },
+                { 
+                  icon: <Wand2 size={24} className="text-emerald-400" />, 
+                  title: "Auto Visuals", 
+                  desc: "Generates consistent, high-fidelity vertical imagery tailored to your chosen aesthetic." 
+                }
+              ].map((f, i) => (
+                <div key={i} className="glass p-8 rounded-3xl border border-white/5 bg-slate-900/40 hover:bg-slate-900/60 transition-colors">
+                  <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center mb-6 border border-white/5">
+                    {f.icon}
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-2">{f.title}</h3>
+                  <p className="text-slate-400 text-sm leading-relaxed">{f.desc}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* EXAMPLE REELS SECTION */}
+            <div className="space-y-16 pb-12">
+               <div className="text-center space-y-4">
+                  <h3 className="text-3xl font-black text-white tracking-tight">Built with ReelZero</h3>
+                  <p className="text-slate-400 max-w-lg mx-auto">Explore high-retention formats generated entirely by AI in under 60 seconds.</p>
+               </div>
+
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-8 justify-items-center max-w-5xl mx-auto">
+                  {EXAMPLES.map((ex, i) => (
+                    <div key={i} className="relative group w-full max-w-[300px] aspect-[9/16] rounded-[2.5rem] border-[8px] border-slate-900 bg-black overflow-hidden shadow-2xl transition-transform hover:-translate-y-2 duration-500">
+                       <img src={ex.img} alt={ex.title} className="w-full h-full object-cover opacity-60 group-hover:opacity-40 transition-opacity duration-500 scale-105 group-hover:scale-110" />
+                       
+                       <div className={`absolute inset-0 bg-gradient-to-t ${ex.color} opacity-40 mix-blend-overlay`}></div>
+                       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent"></div>
+
+                       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                          <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30 text-white shadow-xl">
+                            <Play fill="currentColor" size={24} className="ml-1" />
+                          </div>
+                       </div>
+
+                       <div className="absolute bottom-0 left-0 right-0 p-6 translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+                          <div className="flex items-center gap-2 mb-2">
+                             <span className="px-2 py-1 rounded-md bg-white/10 backdrop-blur-md text-[10px] font-bold text-white uppercase tracking-wider border border-white/10">{ex.style}</span>
+                          </div>
+                          <h4 className="text-xl font-bold text-white leading-tight mb-1">{ex.title}</h4>
+                          <p className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                             <Zap size={12} fill="currentColor" /> {ex.views} Views
+                          </p>
+                       </div>
+                    </div>
+                  ))}
+               </div>
+            </div>
+
           </div>
         )}
 
@@ -494,7 +562,7 @@ export default function App() {
                         if (project.finalVideoUrl) {
                           const a = document.createElement('a');
                           a.href = project.finalVideoUrl;
-                          a.download = `reelsmith-${Date.now()}.${project.exportFormat}`;
+                          a.download = `reelzero-${Date.now()}.${project.exportFormat}`;
                           a.click();
                         }
                       }} 
@@ -547,7 +615,7 @@ export default function App() {
       <footer className="mt-auto py-12 px-6 border-t border-white/5 bg-slate-950/50">
          <div className="container mx-auto max-w-6xl flex flex-col md:flex-row justify-between items-center gap-8 opacity-40">
             <div className="flex items-center gap-2 font-black text-lg tracking-tighter">
-               <Clapperboard size={16} /> ReelSmith
+               <Clapperboard size={16} /> ReelZero
             </div>
             <div className="text-xs font-bold tracking-widest uppercase flex gap-8">
                <a href="#" className="hover:text-white transition-colors">Privacy</a>

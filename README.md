@@ -1,6 +1,6 @@
-# ReelSmith AI
+# ReelZero
 
-**ReelSmith AI** is a professional-grade video generation tool that turns simple text prompts into viral-ready YouTube Shorts in seconds. It leverages the power of Google's Gemini models to handle the entire production pipeline: scripting, visual direction, image generation, voiceover synthesis, and video rendering.
+**ReelZero** is a professional-grade video generation tool that turns simple text prompts into viral-ready YouTube Shorts in seconds. It leverages the power of Google's Gemini models to handle the entire production pipeline: scripting, visual direction, image generation, voiceover synthesis, and video rendering.
 
 ## Features
 
@@ -23,5 +23,5 @@
 1. **Concept**: Enter a topic (e.g., "The History of Espresso").
 2. **Script**: Review and edit the AI-generated storyboard.
 3. **Style**: Select a visual aesthetic.
-4. **Generate**: Watch as ReelSmith AI paints your slides, records voiceovers, and assembles the final video.
+4. **Generate**: Watch as ReelZero paints your slides, records voiceovers, and assembles the final video.
 5. **Download**: Get a ready-to-upload `.webm` file.
