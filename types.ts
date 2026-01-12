@@ -9,6 +9,7 @@ export enum VisualStyle {
 }
 
 export enum CaptionStyle {
+  NONE = 'None',
   SENTENCE = 'Sentence',
   WORD_BY_WORD = 'Word-by-Word'
 }
@@ -35,7 +36,6 @@ export interface ProjectState {
   style: VisualStyle;
   voice: VoiceName;
   customStylePrompt?: string;
-  showCaptions: boolean;
   captionStyle: CaptionStyle;
   exportFormat: 'webm' | 'mp4';
   segments: GeneratedSegment[];

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Sparkles, Video, Wand2, Type as TypeIcon, Palette, Film, Download, RotateCcw, Clapperboard, ChevronRight, Check, Settings2, Mic, PencilLine, Trash2, Plus, ExternalLink, Globe, Search, ALargeSmall, AlignCenter, Zap, Brain, Layers, Smartphone, Play } from 'lucide-react';
+import { Sparkles, Video, Wand2, Type as TypeIcon, Palette, Film, Download, RotateCcw, Clapperboard, ChevronRight, Check, Settings2, Mic, PencilLine, Trash2, Plus, ExternalLink, Globe, Search, ALargeSmall, AlignCenter, Zap, Brain, Layers, Smartphone, Play, X } from 'lucide-react';
 import { Button } from './components/Button';
 import { StepIndicator } from './components/StepIndicator';
 import { generateScript, generateImageForSegment, generateVoiceForSegment } from './services/gemini';
@@ -97,8 +97,7 @@ export default function App() {
     topic: '', 
     style: VisualStyle.CHALKBOARD, 
     voice: 'Kore', 
-    showCaptions: true, 
-    captionStyle: CaptionStyle.SENTENCE,
+    captionStyle: CaptionStyle.NONE,
     exportFormat: 'mp4', 
     segments: []
   });
@@ -165,7 +164,7 @@ export default function App() {
 
       setLoadingMessage("Assembling final video...");
       const { url, actualMime } = await renderVideo(sorted, (m) => setLoadingMessage(m), { 
-        showCaptions: project.showCaptions, 
+        showCaptions: project.captionStyle !== CaptionStyle.NONE, 
         captionStyle: project.captionStyle,
         format: project.exportFormat 
       });
@@ -406,6 +405,18 @@ export default function App() {
                     <ALargeSmall size={14} className="text-emerald-500" /> Caption Style
                   </label>
                   <div className="flex flex-col gap-3">
+                    {/* Option 1: No Caption */}
+                     <button 
+                      onClick={() => setProject(p => ({ ...p, captionStyle: CaptionStyle.NONE }))} 
+                      className={`flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-bold transition-all border
+                        ${project.captionStyle === CaptionStyle.NONE
+                          ? 'bg-slate-700/50 border-slate-500 text-white shadow-lg' 
+                          : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'}`}
+                    >
+                      <X size={16} /> No Caption (Default)
+                    </button>
+
+                    {/* Option 2: Normal Caption */}
                     <button 
                       onClick={() => setProject(p => ({ ...p, captionStyle: CaptionStyle.SENTENCE }))} 
                       className={`flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-bold transition-all border
@@ -413,8 +424,10 @@ export default function App() {
                           ? 'bg-emerald-600/20 border-emerald-500 text-white shadow-lg shadow-emerald-900/20' 
                           : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'}`}
                     >
-                      <AlignCenter size={16} /> Classic (Sentences)
+                      <AlignCenter size={16} /> Normal Caption
                     </button>
+
+                    {/* Option 3: Word-by-Word */}
                     <button 
                       onClick={() => setProject(p => ({ ...p, captionStyle: CaptionStyle.WORD_BY_WORD }))} 
                       className={`flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-bold transition-all border
@@ -422,7 +435,7 @@ export default function App() {
                           ? 'bg-purple-600/20 border-purple-500 text-white shadow-lg shadow-purple-900/20' 
                           : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'}`}
                     >
-                      <TypeIcon size={16} /> Viral (Word-by-Word)
+                      <TypeIcon size={16} /> Word-by-word
                     </button>
                   </div>
                 </div>
