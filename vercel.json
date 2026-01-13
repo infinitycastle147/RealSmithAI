@@ -4,6 +4,5 @@
       "source": "/(.*)",
       "destination": "/index.html"
     }
-  ],
-  "comment": "This file is for frontend-only deployment. API routes are now handled by Express backend. Set VITE_API_URL environment variable to point to your Express backend."
+  ]
 }
