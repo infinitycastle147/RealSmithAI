@@ -1,5 +1,6 @@
 import { ScriptSegment, VoiceName } from "../types";
 import { base64PcmToWavBlob } from "../utils/audio";
+import { getApiUrl } from "../utils/api";
 
 let decoderCtx: AudioContext | null = null;
 const getDecoderCtx = () => {
@@ -29,7 +30,7 @@ async function callBackendAPI(endpoint: string, body: any, token?: string | null
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`/api/${endpoint}`, {
+    const response = await fetch(getApiUrl(endpoint), {
       method: 'POST',
       headers,
       body: JSON.stringify(body)

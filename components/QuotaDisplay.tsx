@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { Zap, Clock, AlertTriangle } from 'lucide-react';
+import { getApiUrl } from '../utils/api';
 
 interface QuotaStatus {
   userId: string;
@@ -32,7 +33,7 @@ export const QuotaDisplay: React.FC<QuotaDisplayProps> = ({ className = '' }) =>
         return;
       }
 
-      const response = await fetch('/api/quota/status', {
+      const response = await fetch(getApiUrl('quota/status'), {
         headers: {
           'Authorization': `Bearer ${token}`
         }

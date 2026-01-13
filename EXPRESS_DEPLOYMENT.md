@@ -95,21 +95,37 @@ CRON_SECRET=your_cron_secret (optional, for manual cron triggers)
 
 ## Frontend Configuration
 
-After deploying your backend, update your frontend to point to the backend URL:
+The frontend has been updated to automatically use the backend URL. Here's how it works:
 
 ### Development (already configured)
-The `vite.config.ts` proxies `/api/*` to `http://localhost:3001`
+- The `vite.config.ts` proxies `/api/*` to `http://localhost:3001`
+- No environment variable needed - uses relative paths that go through the proxy
 
 ### Production
-You'll need to either:
+Set the `VITE_API_URL` environment variable in your frontend deployment:
 
-1. **Update API calls** to use your backend URL:
-   ```typescript
-   const API_BASE_URL = import.meta.env.VITE_API_URL || '';
-   const response = await fetch(`${API_BASE_URL}/api/${endpoint}`, ...);
-   ```
+```bash
+VITE_API_URL=https://your-backend-url.com
+```
 
-2. **Or use a reverse proxy** (if frontend and backend are on same domain)
+**Important:** 
+- The URL should **NOT** include `/api` at the end
+- Example: `https://api.reelsmith.com` ✅ (correct)
+- Example: `https://api.reelsmith.com/api` ❌ (wrong - will result in `/api/api/...`)
+
+The frontend code automatically appends `/api/` to the base URL, so:
+- `VITE_API_URL=https://api.reelsmith.com` → calls `https://api.reelsmith.com/api/gemini/script`
+- If `VITE_API_URL` is not set → uses relative paths (works if frontend/backend on same domain)
+
+### Frontend Environment Variables
+
+For your frontend deployment, set:
+```
+VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_API_URL=https://your-backend-url.com  # Optional - only needed if backend is on different domain
+```
 
 ---
 
