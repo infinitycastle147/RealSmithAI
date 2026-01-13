@@ -21,12 +21,57 @@ if (!process.env.CLERK_SECRET_KEY) {
   process.exit(1); // Exit if secret key is not set
 }
 
+// CORS configuration - must be before other middleware
+// Allow all origins in development, restrict in production
+const corsOptions = {
+  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+    // Allow requests with no origin (like mobile apps, Postman, or same-origin requests)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // In development, allow all origins for easier testing
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`🌐 CORS: Allowing origin: ${origin}`);
+      return callback(null, true);
+    }
+    
+    // In production, use allowed origins from environment or default list
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:5173',
+      'https://reelzeroai.vercel.app', // Production frontend
+    ];
+    
+    // Add production frontend URL from environment (if different)
+    if (process.env.FRONTEND_URL) {
+      allowedOrigins.push(process.env.FRONTEND_URL);
+    }
+    
+    if (allowedOrigins.includes(origin)) {
+      console.log(`✅ CORS: Allowed origin: ${origin}`);
+      callback(null, true);
+    } else {
+      console.warn(`⚠️ CORS: Blocked origin: ${origin}`);
+      callback(new Error(`Not allowed by CORS. Origin: ${origin}`));
+    }
+  },
+  credentials: true, // Allow cookies and authorization headers
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['X-Quota-Tokens-Remaining', 'X-Quota-Requests-Remaining', 'X-Quota-Reset-Time'],
+  maxAge: 86400, // Cache preflight requests for 24 hours
+};
+
+app.use(cors(corsOptions));
+
 // Apply Clerk middleware - this must be done before any routes use getAuth()
 app.use(clerkMiddleware());
 console.log('✅ Clerk middleware initialized');
 
 // Other middleware
-app.use(cors());
 app.use(express.json());
 
 // Extend Express Request type to include userId
@@ -87,6 +132,15 @@ app.get('/health', (req: Request, res: Response) => {
 
 // Error handling middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  // Handle CORS errors
+  if (err.message && err.message.includes('CORS')) {
+    console.error('CORS error:', err.message);
+    return res.status(403).json({ 
+      error: 'CORS policy violation: ' + err.message, 
+      code: 'CORS_ERROR' 
+    });
+  }
+  
   console.error('Unhandled error:', err);
   res.status(500).json({ 
     error: err.message || 'Internal server error', 
