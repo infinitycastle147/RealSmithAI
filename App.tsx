@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sparkles, Video, Wand2, Type as TypeIcon, Palette, Film, Download, RotateCcw, Clapperboard, ChevronRight, Check, Settings2, Mic, PencilLine, Trash2, Plus, ExternalLink, Globe, Search, ALargeSmall, AlignCenter, Zap, Brain, Layers, Smartphone, Play, X } from 'lucide-react';
+import { useAuth, UserButton } from '@clerk/clerk-react';
 import { Button } from './components/Button';
 import { StepIndicator } from './components/StepIndicator';
+import { QuotaDisplay } from './components/QuotaDisplay';
+import { LoginModal } from './components/LoginModal';
 import { generateScript, generateImageForSegment, generateVoiceForSegment } from './services/gemini';
 import { renderVideo } from './utils/videoGenerator';
 import { AppStep, VisualStyle, ProjectState, VoiceName, GeneratedSegment, CaptionStyle } from './types';
@@ -21,16 +24,16 @@ const EXAMPLES = [
   { title: "Coffee History", views: "2.4M", style: "Vintage", color: "from-amber-900 to-orange-900", img: "https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=800&q=80" }
 ];
 
-const SceneCard = React.memo(({ 
-  segment, 
-  index, 
-  onUpdate, 
-  onDelete 
-}: { 
-  segment: GeneratedSegment, 
-  index: number, 
-  onUpdate: (id: string, narration: string, visual: string) => void, 
-  onDelete: (index: number) => void 
+const SceneCard = React.memo(({
+  segment,
+  index,
+  onUpdate,
+  onDelete
+}: {
+  segment: GeneratedSegment,
+  index: number,
+  onUpdate: (id: string, narration: string, visual: string) => void,
+  onDelete: (index: number) => void
 }) => {
   const [localNarration, setLocalNarration] = useState(segment.narration);
   const [localVisual, setLocalVisual] = useState(segment.visualDescription);
@@ -53,8 +56,8 @@ const SceneCard = React.memo(({
       <div className="absolute -top-3 -left-3 w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-sm font-bold text-white border-2 border-slate-950 z-10 shadow-lg">
         {index + 1}
       </div>
-      <button 
-        onClick={() => onDelete(index)} 
+      <button
+        onClick={() => onDelete(index)}
         className="absolute top-4 right-4 p-2.5 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all opacity-0 group-hover:opacity-100"
         title="Remove Scene"
       >
@@ -65,10 +68,10 @@ const SceneCard = React.memo(({
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
             <Mic size={14} className="text-blue-400" /> Narration Script
           </label>
-          <textarea 
-            value={localNarration} 
-            onChange={(e) => handleChange(e.target.value, localVisual)} 
-            className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-4 text-white text-sm leading-relaxed h-32 resize-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-700" 
+          <textarea
+            value={localNarration}
+            onChange={(e) => handleChange(e.target.value, localVisual)}
+            className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-4 text-white text-sm leading-relaxed h-32 resize-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all placeholder:text-slate-700"
             placeholder="What will the narrator say in this scene?"
           />
         </div>
@@ -76,10 +79,10 @@ const SceneCard = React.memo(({
           <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
             <Film size={14} className="text-purple-400" /> Visual Prompt
           </label>
-          <textarea 
-            value={localVisual} 
-            onChange={(e) => handleChange(localNarration, e.target.value)} 
-            className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-4 text-slate-300 text-sm leading-relaxed h-32 resize-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all placeholder:text-slate-700" 
+          <textarea
+            value={localVisual}
+            onChange={(e) => handleChange(localNarration, e.target.value)}
+            className="w-full bg-slate-950/50 border border-slate-800 rounded-xl p-4 text-slate-300 text-sm leading-relaxed h-32 resize-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all placeholder:text-slate-700"
             placeholder="Describe the image to generate for this scene..."
           />
         </div>
@@ -89,18 +92,22 @@ const SceneCard = React.memo(({
 });
 
 export default function App() {
+  const { isLoaded, isSignedIn, getToken } = useAuth();
   const [step, setStep] = useState<AppStep>('INPUT');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [groundingSources, setGroundingSources] = useState<any[]>([]);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [project, setProject] = useState<ProjectState>({
-    topic: '', 
-    style: VisualStyle.CHALKBOARD, 
-    voice: 'Kore', 
+    topic: '',
+    style: VisualStyle.CHALKBOARD,
+    voice: 'Kore',
     captionStyle: CaptionStyle.NONE,
-    exportFormat: 'mp4', 
+    exportFormat: 'mp4',
     segments: []
   });
+
+
 
   const revokeAsset = (url?: string) => {
     if (url && url.startsWith('blob:')) URL.revokeObjectURL(url);
@@ -117,8 +124,9 @@ export default function App() {
     setStep('GENERATION');
     setLoadingMessage("Initiating production...");
     revokeAsset(project.finalVideoUrl);
-    
+
     try {
+      const token = await getToken();
       const styleStr = project.style === VisualStyle.CUSTOM ? (project.customStylePrompt || 'Modern Art') : project.style;
       const CONCURRENCY_LIMIT = 3;
       const queue = [...project.segments];
@@ -128,32 +136,32 @@ export default function App() {
       const processNext = async () => {
         if (queue.length === 0) return;
         const segment = queue.shift()!;
-        
+
         const [voiceRes, imageRes] = await Promise.all([
-          segment.audioUrl && segment.audioBuffer 
-            ? Promise.resolve({ audioUrl: segment.audioUrl, duration: segment.audioDuration!, buffer: segment.audioBuffer! }) 
-            : generateVoiceForSegment(segment.narration, project.voice),
-          segment.imageUrl 
-            ? Promise.resolve(segment.imageUrl) 
-            : generateImageForSegment(segment.visualDescription, styleStr)
+          segment.audioUrl && segment.audioBuffer
+            ? Promise.resolve({ audioUrl: segment.audioUrl, duration: segment.audioDuration!, buffer: segment.audioBuffer! })
+            : generateVoiceForSegment(segment.narration, project.voice, token),
+          segment.imageUrl
+            ? Promise.resolve(segment.imageUrl)
+            : generateImageForSegment(segment.visualDescription, styleStr, token)
         ]);
-        
+
         completed++;
         setLoadingMessage(`Assets: ${completed}/${project.segments.length}...`);
-        
-        finalSegments.push({ 
-          ...segment, 
-          audioUrl: voiceRes.audioUrl, 
-          audioDuration: voiceRes.duration, 
-          audioBuffer: voiceRes.buffer, 
-          imageUrl: imageRes 
+
+        finalSegments.push({
+          ...segment,
+          audioUrl: voiceRes.audioUrl,
+          audioDuration: voiceRes.duration,
+          audioBuffer: voiceRes.buffer,
+          imageUrl: imageRes
         });
-        
+
         await processNext();
       };
 
       await Promise.all(Array.from({ length: CONCURRENCY_LIMIT }).map(() => processNext()));
-      
+
       const sorted = finalSegments.sort((a, b) => {
         const indexA = project.segments.findIndex(s => s.id === a.id);
         const indexB = project.segments.findIndex(s => s.id === b.id);
@@ -163,21 +171,44 @@ export default function App() {
       setProject(prev => ({ ...prev, segments: sorted }));
 
       setLoadingMessage("Assembling final video...");
-      const { url, actualMime } = await renderVideo(sorted, (m) => setLoadingMessage(m), { 
-        showCaptions: project.captionStyle !== CaptionStyle.NONE, 
+      const { url, actualMime } = await renderVideo(sorted, (m) => setLoadingMessage(m), {
+        showCaptions: project.captionStyle !== CaptionStyle.NONE,
         captionStyle: project.captionStyle,
-        format: project.exportFormat 
+        format: project.exportFormat
       });
-      
-      setProject(prev => ({ 
-        ...prev, 
-        finalVideoUrl: url, 
-        exportFormat: actualMime.includes('mp4') ? 'mp4' : 'webm' 
+
+      setProject(prev => ({
+        ...prev,
+        finalVideoUrl: url,
+        exportFormat: actualMime.includes('mp4') ? 'mp4' : 'webm'
       }));
       setStep('RESULT');
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert("Production failed. Returning to script editor.");
+      const errorMessage = e.message || "Production failed. Please try again.";
+
+      // Handle quota exceeded errors
+      if (e.code === 'QUOTA_EXCEEDED' || errorMessage.includes('Quota exceeded')) {
+        const resetTime = e.resetTime ? new Date(e.resetTime).toLocaleString() : 'midnight';
+        alert(`Quota exceeded. Your daily limit has been reached. Quota will reset at ${resetTime}.`);
+        setStep('SCRIPT');
+        return;
+      }
+
+      // Handle authentication errors
+      if (errorMessage.includes('Unauthorized') || errorMessage.includes('Session expired') || errorMessage.includes('Authentication required')) {
+        alert("Your session has expired. Please sign in again.");
+        return;
+      }
+
+      // Handle network errors
+      if (errorMessage.includes('Network error')) {
+        alert("Network error. Please check your connection and try again.");
+        setStep('SCRIPT');
+        return;
+      }
+
+      alert(errorMessage);
       setStep('SCRIPT');
     }
   };
@@ -188,10 +219,10 @@ export default function App() {
       segments: prev.segments.map(s => {
         if (s.id !== id) return s;
         const updated = { ...s, narration, visualDescription: visual };
-        if (s.narration !== narration) { 
-          revokeAsset(s.audioUrl); 
-          updated.audioUrl = undefined; 
-          updated.audioBuffer = undefined; 
+        if (s.narration !== narration) {
+          revokeAsset(s.audioUrl);
+          updated.audioUrl = undefined;
+          updated.audioBuffer = undefined;
         }
         if (s.visualDescription !== visual) {
           updated.imageUrl = undefined;
@@ -202,9 +233,9 @@ export default function App() {
   }, []);
 
   const handleAddScene = useCallback(() => {
-    setProject(prev => ({ 
-      ...prev, 
-      segments: [...prev.segments, { id: `seg-${Date.now()}-${Math.random()}`, narration: '', visualDescription: '', isGenerating: false }] 
+    setProject(prev => ({
+      ...prev,
+      segments: [...prev.segments, { id: `seg-${Date.now()}-${Math.random()}`, narration: '', visualDescription: '', isGenerating: false }]
     }));
   }, []);
 
@@ -229,18 +260,40 @@ export default function App() {
             <StepIndicator currentStep={step} />
           </div>
         )}
-        <div className="w-10 sm:w-32 flex justify-end">
-           <Button variant="ghost" className="p-2 sm:px-4" onClick={() => window.open('https://github.com', '_blank')}>
-              <Globe size={20} className="sm:mr-2" />
-              <span className="hidden sm:inline">Docs</span>
-           </Button>
+        {/* Mobile quota display - only show when signed in and not on INPUT step */}
+        {step !== 'INPUT' && isSignedIn && (
+          <div className="lg:hidden px-4">
+            <QuotaDisplay />
+          </div>
+        )}
+        <div className="flex-1 flex justify-end items-center gap-4">
+          {isSignedIn && (
+            <div className="hidden lg:block">
+              <QuotaDisplay />
+            </div>
+          )}
+          <Button variant="ghost" className="p-2 sm:px-4" onClick={() => window.open('https://github.com', '_blank')}>
+            <Globe size={20} className="sm:mr-2" />
+            <span className="hidden sm:inline">Docs</span>
+          </Button>
+          {isSignedIn ? (
+            <UserButton afterSignOutUrl="/" />
+          ) : (
+            <Button
+              variant="glow"
+              className="px-4 py-2 text-sm font-bold"
+              onClick={() => setShowLoginModal(true)}
+            >
+              Sign In
+            </Button>
+          )}
         </div>
       </nav>
-      
+
       <main className="container mx-auto px-4 py-12 max-w-6xl">
         {step === 'INPUT' && (
           <div className="flex flex-col gap-24 animate-fadeIn">
-            
+
             {/* HERO SECTION */}
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
               <div className="w-full max-w-4xl space-y-12">
@@ -258,16 +311,30 @@ export default function App() {
                 </div>
 
                 <div className="bg-slate-900/40 backdrop-blur-xl p-3 rounded-[2.5rem] flex flex-col sm:flex-row border border-white/10 max-w-2xl mx-auto group focus-within:border-blue-500/50 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all shadow-2xl relative z-10">
-                  <input 
-                    value={project.topic} 
-                    onChange={(e) => setProject(p => ({ ...p, topic: e.target.value }))} 
-                    placeholder="What's your story? (e.g. Life of Steve Jobs)" 
-                    className="w-full bg-transparent px-6 py-5 outline-none text-xl text-white placeholder:text-slate-600 font-medium" 
-                    onKeyDown={(e) => e.key === 'Enter' && project.topic && setStep('STYLE')} 
+                  <input
+                    value={project.topic}
+                    onChange={(e) => setProject(p => ({ ...p, topic: e.target.value }))}
+                    placeholder="What's your story? (e.g. Life of Steve Jobs)"
+                    className="w-full bg-transparent px-6 py-5 outline-none text-xl text-white placeholder:text-slate-600 font-medium"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && project.topic) {
+                        if (!isSignedIn) {
+                          setShowLoginModal(true);
+                        } else {
+                          setStep('STYLE');
+                        }
+                      }
+                    }}
                   />
-                  <Button 
-                    onClick={() => setStep('STYLE')} 
-                    disabled={!project.topic.trim()} 
+                  <Button
+                    onClick={() => {
+                      if (!isSignedIn) {
+                        setShowLoginModal(true);
+                      } else {
+                        setStep('STYLE');
+                      }
+                    }}
+                    disabled={!project.topic.trim()}
                     variant="glow"
                     className="sm:w-48 py-5 rounded-[2rem] text-lg font-bold"
                   >
@@ -280,20 +347,20 @@ export default function App() {
             {/* FEATURES GRID */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {[
-                { 
-                  icon: <Brain size={24} className="text-purple-400" />, 
-                  title: "Smart Scripting", 
-                  desc: "Gemini 3-powered research creates engaging narrative arcs with hooks, value, and strong CTAs." 
+                {
+                  icon: <Brain size={24} className="text-purple-400" />,
+                  title: "Smart Scripting",
+                  desc: "Gemini 3-powered research creates engaging narrative arcs with hooks, value, and strong CTAs."
                 },
-                { 
-                  icon: <Mic size={24} className="text-blue-400" />, 
-                  title: "Human Voices", 
-                  desc: "Ultra-realistic text-to-speech engine with emotional range and perfect pronunciation." 
+                {
+                  icon: <Mic size={24} className="text-blue-400" />,
+                  title: "Human Voices",
+                  desc: "Ultra-realistic text-to-speech engine with emotional range and perfect pronunciation."
                 },
-                { 
-                  icon: <Wand2 size={24} className="text-emerald-400" />, 
-                  title: "Auto Visuals", 
-                  desc: "Generates consistent, high-fidelity vertical imagery tailored to your chosen aesthetic." 
+                {
+                  icon: <Wand2 size={24} className="text-emerald-400" />,
+                  title: "Auto Visuals",
+                  desc: "Generates consistent, high-fidelity vertical imagery tailored to your chosen aesthetic."
                 }
               ].map((f, i) => (
                 <div key={i} className="glass p-8 rounded-3xl border border-white/5 bg-slate-900/40 hover:bg-slate-900/60 transition-colors">
@@ -308,37 +375,37 @@ export default function App() {
 
             {/* EXAMPLE REELS SECTION */}
             <div className="space-y-16 pb-12">
-               <div className="text-center space-y-4">
-                  <h3 className="text-3xl font-black text-white tracking-tight">Built with ReelZero</h3>
-                  <p className="text-slate-400 max-w-lg mx-auto">Explore high-retention formats generated entirely by AI in under 60 seconds.</p>
-               </div>
+              <div className="text-center space-y-4">
+                <h3 className="text-3xl font-black text-white tracking-tight">Built with ReelZero</h3>
+                <p className="text-slate-400 max-w-lg mx-auto">Explore high-retention formats generated entirely by AI in under 60 seconds.</p>
+              </div>
 
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-8 justify-items-center max-w-5xl mx-auto">
-                  {EXAMPLES.map((ex, i) => (
-                    <div key={i} className="relative group w-full max-w-[300px] aspect-[9/16] rounded-[2.5rem] border-[8px] border-slate-900 bg-black overflow-hidden shadow-2xl transition-transform hover:-translate-y-2 duration-500">
-                       <img src={ex.img} alt={ex.title} className="w-full h-full object-cover opacity-60 group-hover:opacity-40 transition-opacity duration-500 scale-105 group-hover:scale-110" />
-                       
-                       <div className={`absolute inset-0 bg-gradient-to-t ${ex.color} opacity-40 mix-blend-overlay`}></div>
-                       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent"></div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 justify-items-center max-w-5xl mx-auto">
+                {EXAMPLES.map((ex, i) => (
+                  <div key={i} className="relative group w-full max-w-[300px] aspect-[9/16] rounded-[2.5rem] border-[8px] border-slate-900 bg-black overflow-hidden shadow-2xl transition-transform hover:-translate-y-2 duration-500">
+                    <img src={ex.img} alt={ex.title} className="w-full h-full object-cover opacity-60 group-hover:opacity-40 transition-opacity duration-500 scale-105 group-hover:scale-110" />
 
-                       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                          <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30 text-white shadow-xl">
-                            <Play fill="currentColor" size={24} className="ml-1" />
-                          </div>
-                       </div>
+                    <div className={`absolute inset-0 bg-gradient-to-t ${ex.color} opacity-40 mix-blend-overlay`}></div>
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent"></div>
 
-                       <div className="absolute bottom-0 left-0 right-0 p-6 translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
-                          <div className="flex items-center gap-2 mb-2">
-                             <span className="px-2 py-1 rounded-md bg-white/10 backdrop-blur-md text-[10px] font-bold text-white uppercase tracking-wider border border-white/10">{ex.style}</span>
-                          </div>
-                          <h4 className="text-xl font-bold text-white leading-tight mb-1">{ex.title}</h4>
-                          <p className="text-xs font-bold text-emerald-400 flex items-center gap-1">
-                             <Zap size={12} fill="currentColor" /> {ex.views} Views
-                          </p>
-                       </div>
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30 text-white shadow-xl">
+                        <Play fill="currentColor" size={24} className="ml-1" />
+                      </div>
                     </div>
-                  ))}
-               </div>
+
+                    <div className="absolute bottom-0 left-0 right-0 p-6 translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="px-2 py-1 rounded-md bg-white/10 backdrop-blur-md text-[10px] font-bold text-white uppercase tracking-wider border border-white/10">{ex.style}</span>
+                      </div>
+                      <h4 className="text-xl font-bold text-white leading-tight mb-1">{ex.title}</h4>
+                      <p className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                        <Zap size={12} fill="currentColor" /> {ex.views} Views
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
           </div>
@@ -353,12 +420,12 @@ export default function App() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
               {STYLE_PRESETS.map(s => (
-                <button 
-                  key={s.id} 
-                  onClick={() => setProject(p => ({ ...p, style: s.id as VisualStyle }))} 
+                <button
+                  key={s.id}
+                  onClick={() => setProject(p => ({ ...p, style: s.id as VisualStyle }))}
                   className={`group p-6 rounded-3xl border-2 text-left transition-all relative overflow-hidden h-52 flex flex-col justify-end
-                    ${project.style === s.id 
-                      ? 'border-blue-500 bg-slate-800 shadow-2xl shadow-blue-500/10' 
+                    ${project.style === s.id
+                      ? 'border-blue-500 bg-slate-800 shadow-2xl shadow-blue-500/10'
                       : 'border-slate-800 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60'}`}
                 >
                   <div className={`absolute inset-0 bg-gradient-to-t ${s.color} opacity-10 group-hover:opacity-20 transition-opacity`}></div>
@@ -376,7 +443,7 @@ export default function App() {
             </div>
 
             <div className="glass rounded-[3rem] p-10 border border-white/5 flex flex-col gap-12 shadow-2xl">
-              
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
                 {/* Voice Selection */}
                 <div className="space-y-4">
@@ -385,12 +452,12 @@ export default function App() {
                   </label>
                   <div className="flex flex-wrap gap-2">
                     {VOICES.map(v => (
-                      <button 
-                        key={v} 
-                        onClick={() => setProject(p => ({ ...p, voice: v }))} 
+                      <button
+                        key={v}
+                        onClick={() => setProject(p => ({ ...p, voice: v }))}
                         className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all border
-                          ${project.voice === v 
-                            ? 'bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-900/40 scale-105' 
+                          ${project.voice === v
+                            ? 'bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-900/40 scale-105'
                             : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}
                       >
                         {v}
@@ -398,7 +465,7 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-                
+
                 {/* Caption Style Selection */}
                 <div className="space-y-4">
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
@@ -406,33 +473,33 @@ export default function App() {
                   </label>
                   <div className="flex flex-col gap-3">
                     {/* Option 1: No Caption */}
-                     <button 
-                      onClick={() => setProject(p => ({ ...p, captionStyle: CaptionStyle.NONE }))} 
+                    <button
+                      onClick={() => setProject(p => ({ ...p, captionStyle: CaptionStyle.NONE }))}
                       className={`flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-bold transition-all border
                         ${project.captionStyle === CaptionStyle.NONE
-                          ? 'bg-slate-700/50 border-slate-500 text-white shadow-lg' 
+                          ? 'bg-slate-700/50 border-slate-500 text-white shadow-lg'
                           : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'}`}
                     >
                       <X size={16} /> No Caption (Default)
                     </button>
 
                     {/* Option 2: Normal Caption */}
-                    <button 
-                      onClick={() => setProject(p => ({ ...p, captionStyle: CaptionStyle.SENTENCE }))} 
+                    <button
+                      onClick={() => setProject(p => ({ ...p, captionStyle: CaptionStyle.SENTENCE }))}
                       className={`flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-bold transition-all border
                         ${project.captionStyle === CaptionStyle.SENTENCE
-                          ? 'bg-emerald-600/20 border-emerald-500 text-white shadow-lg shadow-emerald-900/20' 
+                          ? 'bg-emerald-600/20 border-emerald-500 text-white shadow-lg shadow-emerald-900/20'
                           : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'}`}
                     >
                       <AlignCenter size={16} /> Normal Caption
                     </button>
 
                     {/* Option 3: Word-by-Word */}
-                    <button 
-                      onClick={() => setProject(p => ({ ...p, captionStyle: CaptionStyle.WORD_BY_WORD }))} 
+                    <button
+                      onClick={() => setProject(p => ({ ...p, captionStyle: CaptionStyle.WORD_BY_WORD }))}
                       className={`flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-bold transition-all border
                         ${project.captionStyle === CaptionStyle.WORD_BY_WORD
-                          ? 'bg-purple-600/20 border-purple-500 text-white shadow-lg shadow-purple-900/20' 
+                          ? 'bg-purple-600/20 border-purple-500 text-white shadow-lg shadow-purple-900/20'
                           : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'}`}
                     >
                       <TypeIcon size={16} /> Word-by-word
@@ -447,7 +514,7 @@ export default function App() {
                   </label>
                   <div className={`relative transition-all ${project.style === VisualStyle.CUSTOM ? 'opacity-100' : 'opacity-40 cursor-not-allowed'}`}>
                     <PencilLine className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
-                    <input 
+                    <input
                       type="text"
                       disabled={project.style !== VisualStyle.CUSTOM}
                       placeholder="e.g. Cinematic 3D, Cyber-Noir..."
@@ -460,24 +527,52 @@ export default function App() {
               </div>
 
               <div className="flex justify-end pt-4 border-t border-white/5">
-                <Button 
+                <Button
                   onClick={async () => {
+                    // Check authentication first
+                    if (!isSignedIn) {
+                      setShowLoginModal(true);
+                      return;
+                    }
+
                     setIsLoading(true);
                     setLoadingMessage("AI Researching topic...");
                     try {
                       const styleStr = project.style === VisualStyle.CUSTOM ? (project.customStylePrompt || 'Modern Art') : project.style;
-                      const result = await generateScript(project.topic, styleStr);
+                      const token = await getToken();
+                      const result = await generateScript(project.topic, styleStr, token);
                       setProject(p => ({ ...p, segments: result.segments.map(s => ({ ...s, isGenerating: false })) }));
                       setGroundingSources(result.sources);
                       setStep('SCRIPT');
-                    } catch (e) {
-                      alert("Failed to generate script.");
+                    } catch (e: any) {
+                      const errorMessage = e.message || "Failed to generate script.";
+
+                      // Handle quota exceeded errors
+                      if (e.code === 'QUOTA_EXCEEDED' || errorMessage.includes('Quota exceeded')) {
+                        const resetTime = e.resetTime ? new Date(e.resetTime).toLocaleString() : 'midnight';
+                        alert(`Quota exceeded. Your daily limit has been reached. Quota will reset at ${resetTime}.`);
+                        return;
+                      }
+
+                      // Handle authentication errors
+                      if (errorMessage.includes('Unauthorized') || errorMessage.includes('Session expired') || errorMessage.includes('Authentication required')) {
+                        alert("Your session has expired. Please sign in again.");
+                        return;
+                      }
+
+                      // Handle network errors
+                      if (errorMessage.includes('Network error')) {
+                        alert("Network error. Please check your connection and try again.");
+                        return;
+                      }
+
+                      alert(errorMessage);
                     } finally {
                       setIsLoading(false);
                     }
-                  }} 
-                  variant="glow" 
-                  className="w-full lg:w-auto px-12 py-5 text-lg rounded-2xl" 
+                  }}
+                  variant="glow"
+                  className="w-full lg:w-auto px-12 py-5 text-lg rounded-2xl"
                   isLoading={isLoading}
                 >
                   {isLoading ? loadingMessage : "Initialize Production"}
@@ -508,9 +603,9 @@ export default function App() {
             <div className="fixed bottom-0 left-0 w-full p-8 bg-slate-950/90 backdrop-blur-2xl border-t border-white/5 flex justify-center z-50">
               <div className="max-w-4xl w-full flex items-center justify-between gap-6">
                 <Button onClick={() => setStep('STYLE')} variant="ghost" className="text-slate-400">Back</Button>
-                <Button 
-                  onClick={handleStartGeneration} 
-                  variant="glow" 
+                <Button
+                  onClick={handleStartGeneration}
+                  variant="glow"
                   disabled={project.segments.length === 0 || project.segments.some(s => !s.narration.trim())}
                   className="flex-1 sm:flex-none px-16 py-5 text-lg rounded-2xl shadow-blue-500/20"
                 >
@@ -524,11 +619,11 @@ export default function App() {
         {step === 'GENERATION' && (
           <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 text-center">
             <div className="relative w-32 h-32">
-               <div className="absolute inset-0 border-4 border-blue-500/10 rounded-full"></div>
-               <div className="absolute inset-0 border-t-4 border-blue-500 rounded-full animate-spin"></div>
-               <div className="absolute inset-4 bg-blue-500/5 rounded-full flex items-center justify-center">
-                  <Clapperboard className="text-blue-500 animate-pulse" size={40} />
-               </div>
+              <div className="absolute inset-0 border-4 border-blue-500/10 rounded-full"></div>
+              <div className="absolute inset-0 border-t-4 border-blue-500 rounded-full animate-spin"></div>
+              <div className="absolute inset-4 bg-blue-500/5 rounded-full flex items-center justify-center">
+                <Clapperboard className="text-blue-500 animate-pulse" size={40} />
+              </div>
             </div>
             <div className="space-y-2">
               <h2 className="text-3xl font-black text-white tracking-tight">Rendering Masterpiece</h2>
@@ -550,13 +645,13 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 items-start">
               <div className="lg:col-span-5 flex justify-center lg:justify-end lg:sticky lg:top-32">
                 <div className="relative group">
-                   <div className="absolute -inset-4 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-[3rem] blur-2xl opacity-50 group-hover:opacity-100 transition-opacity"></div>
-                   <div className="relative bg-black rounded-[2.5rem] border-[12px] border-slate-900 overflow-hidden shadow-2xl max-w-[340px] w-full aspect-[9/16]">
+                  <div className="absolute -inset-4 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-[3rem] blur-2xl opacity-50 group-hover:opacity-100 transition-opacity"></div>
+                  <div className="relative bg-black rounded-[2.5rem] border-[12px] border-slate-900 overflow-hidden shadow-2xl max-w-[340px] w-full aspect-[9/16]">
                     <video src={project.finalVideoUrl} controls autoPlay className="w-full h-full object-cover" />
                   </div>
                 </div>
               </div>
-              
+
               <div className="lg:col-span-7 space-y-8">
                 <div className="glass rounded-[2.5rem] p-10 border border-white/5 space-y-8 shadow-2xl bg-slate-900/40">
                   <div className="flex items-center gap-4 border-b border-white/5 pb-8">
@@ -570,7 +665,7 @@ export default function App() {
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Button 
+                    <Button
                       onClick={() => {
                         if (project.finalVideoUrl) {
                           const a = document.createElement('a');
@@ -578,8 +673,8 @@ export default function App() {
                           a.download = `reelzero-${Date.now()}.${project.exportFormat}`;
                           a.click();
                         }
-                      }} 
-                      variant="glow" 
+                      }}
+                      variant="glow"
                       className="py-5 text-lg font-bold rounded-2xl"
                     >
                       <Download size={20} /> Download MP4
@@ -593,13 +688,13 @@ export default function App() {
                 {groundingSources.length > 0 && (
                   <div className="bg-slate-900/20 rounded-[2.5rem] p-10 border border-white/5 shadow-xl">
                     <div className="flex items-center gap-2 mb-8">
-                       <Search size={18} className="text-blue-400" />
-                       <h4 className="text-slate-300 font-black text-sm uppercase tracking-[0.2em]">Fact-Check Research</h4>
+                      <Search size={18} className="text-blue-400" />
+                      <h4 className="text-slate-300 font-black text-sm uppercase tracking-[0.2em]">Fact-Check Research</h4>
                     </div>
                     <div className="grid grid-cols-1 gap-3">
                       {groundingSources.map((chunk, idx) => (
                         chunk.web && (
-                          <a 
+                          <a
                             key={idx}
                             href={chunk.web.uri}
                             target="_blank"
@@ -611,7 +706,7 @@ export default function App() {
                               <span className="text-slate-500 text-xs truncate opacity-60 font-mono tracking-tighter">{chunk.web.uri}</span>
                             </div>
                             <div className="w-8 h-8 rounded-lg bg-slate-900 flex items-center justify-center text-slate-500 group-hover:text-blue-400 group-hover:bg-blue-500/10 transition-colors shrink-0">
-                               <ExternalLink size={14} />
+                              <ExternalLink size={14} />
                             </div>
                           </a>
                         )
@@ -624,20 +719,23 @@ export default function App() {
           </div>
         )}
       </main>
-      
+
       <footer className="mt-auto py-12 px-6 border-t border-white/5 bg-slate-950/50">
-         <div className="container mx-auto max-w-6xl flex flex-col md:flex-row justify-between items-center gap-8 opacity-40">
-            <div className="flex items-center gap-2 font-black text-lg tracking-tighter">
-               <Clapperboard size={16} /> ReelZero
-            </div>
-            <div className="text-xs font-bold tracking-widest uppercase flex gap-8">
-               <a href="#" className="hover:text-white transition-colors">Privacy</a>
-               <a href="#" className="hover:text-white transition-colors">Terms</a>
-               <a href="#" className="hover:text-white transition-colors">Enterprise</a>
-            </div>
-            <div className="text-xs">© 2025 AI Production Engine.</div>
-         </div>
+        <div className="container mx-auto max-w-6xl flex flex-col md:flex-row justify-between items-center gap-8 opacity-40">
+          <div className="flex items-center gap-2 font-black text-lg tracking-tighter">
+            <Clapperboard size={16} /> ReelZero
+          </div>
+          <div className="text-xs font-bold tracking-widest uppercase flex gap-8">
+            <a href="#" className="hover:text-white transition-colors">Privacy</a>
+            <a href="#" className="hover:text-white transition-colors">Terms</a>
+            <a href="#" className="hover:text-white transition-colors">Enterprise</a>
+          </div>
+          <div className="text-xs">© 2025 AI Production Engine.</div>
+        </div>
       </footer>
+
+      {/* Login Modal */}
+      <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} />
     </div>
   );
 }

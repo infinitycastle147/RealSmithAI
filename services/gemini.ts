@@ -1,16 +1,5 @@
-
-import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
 import { ScriptSegment, VoiceName } from "../types";
 import { base64PcmToWavBlob } from "../utils/audio";
-
-let aiInstance: GoogleGenAI | null = null;
-const getAI = () => {
-  if (!aiInstance) {
-    // strict adherence to SDK initialization with named parameter
-    aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  }
-  return aiInstance;
-};
 
 let decoderCtx: AudioContext | null = null;
 const getDecoderCtx = () => {
@@ -21,100 +10,82 @@ const getDecoderCtx = () => {
 };
 
 /**
- * Helper to strip markdown code blocks and find JSON array in response
+ * Helper function to call backend API with authentication
+ * Includes error handling for session expiration and network failures
  */
-const cleanJsonOutput = (text: string): string => {
-  if (!text) return "[]";
-  let clean = text.trim();
-  
-  // Remove markdown code blocks if present
-  if (clean.includes('```')) {
-    clean = clean.replace(/```(?:json)?/g, '').replace(/```/g, '');
+async function callBackendAPI(endpoint: string, body: any, token?: string | null): Promise<any> {
+  if (!token) {
+    // For now, we'll make requests without authentication
+    // In production, this should be handled properly with Clerk
+    console.warn('No authentication token provided');
   }
-
-  // Find the first '[' and last ']' to extract the array
-  const firstBracket = clean.indexOf('[');
-  const lastBracket = clean.lastIndexOf(']');
-  
-  if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
-    clean = clean.substring(firstBracket, lastBracket + 1);
-  }
-
-  return clean;
-};
-
-/**
- * Generates a factually grounded script using Dedicated System Instructions and Search Grounding.
- */
-export const generateScript = async (topic: string, style: string): Promise<{ segments: ScriptSegment[], sources: any[] }> => {
-  const ai = getAI();
-  
-  // Dedicated System Instruction: Defines persona, constraints, and output goals.
-  const systemInstruction = `
-    You are an elite Viral Content Strategist specializing in vertical short-form video (YouTube Shorts, TikTok).
-    
-    CORE DIRECTIVES:
-    1. RETENTION-FIRST: Every script must start with a 'Scroll-Stopping Hook' (0-5s).
-    2. NARRATIVE ARC: The body must provide high-value information or entertainment with logical transitions.
-    3. CALL TO ACTION: End with a strong, single CTA.
-    4. VISUAL STORYBOARDING: Descriptions for visual segments must be cinematic and fit a 9:16 aspect ratio.
-    5. FACTUAL INTEGRITY: Use Google Search to verify any real-world claims, news, or historical data.
-    
-    OUTPUT FORMAT:
-    - You must return a valid JSON array of objects.
-    - Each object must have: 'narration' (string) and 'visualDescription' (string).
-    - Provide exactly 6 segments for a 60-second video.
-  `;
-
-  const userPrompt = `Create a script about the following topic: "${topic}". 
-  The visual aesthetic for all scenes should be: "${style}". 
-  Ensure the narration is punchy and the facts are up-to-date.`;
 
   try {
-    const response: GenerateContentResponse = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: userPrompt,
-      config: {
-        systemInstruction,
-        // Enabling Google Search Grounding for live information retrieval
-        tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              narration: { type: Type.STRING },
-              visualDescription: { type: Type.STRING },
-            },
-            required: ['narration', 'visualDescription']
-          }
-        }
-      }
-    });
-
-    // Robust text extraction and parsing
-    const text = response.text || "[]";
-    const cleanedText = cleanJsonOutput(text);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
     
-    let segments;
-    try {
-        segments = JSON.parse(cleanedText);
-    } catch (e) {
-        console.error("JSON Parse Error on output:", cleanedText);
-        throw new Error("Failed to parse AI response");
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
 
-    // Extract grounding chunks for factual transparency in the UI
-    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const response = await fetch(`/api/${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
+    });
 
+  if (response.status === 401) {
+    // Session expired - store intended action and redirect
+    sessionStorage.setItem('pendingAction', JSON.stringify({ endpoint, body }));
+    window.location.href = '/sign-in';
+    throw new Error('Session expired. Please sign in again.');
+  }
+
+  if (response.status === 429) {
+    // Quota exceeded
+    const errorData = await response.json().catch(() => ({ error: 'Quota exceeded' }));
+    const quotaError = new Error(errorData.error || 'Quota exceeded');
+    (quotaError as any).code = 'QUOTA_EXCEEDED';
+    (quotaError as any).resetTime = errorData.resetTime;
+    (quotaError as any).tokensRemaining = errorData.tokensRemaining;
+    (quotaError as any).requestsRemaining = errorData.requestsRemaining;
+    throw quotaError;
+  }
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(errorData.error || `Request failed with status ${response.status}`);
+  }
+
+  // Update quota from response headers if available
+  const tokensRemaining = response.headers.get('X-Quota-Tokens-Remaining');
+  const requestsRemaining = response.headers.get('X-Quota-Requests-Remaining');
+  if (tokensRemaining !== null || requestsRemaining !== null) {
+    // Trigger quota refresh in QuotaDisplay component via custom event
+    window.dispatchEvent(new CustomEvent('quota-updated'));
+  }
+
+    const data = await response.json();
+    return data.data; // Extract data from { data: ... } response format
+  } catch (error: any) {
+    // Handle network errors
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new Error('Network error. Please check your connection and try again.');
+    }
+    throw error;
+  }
+}
+
+/**
+ * Generates a factually grounded script using backend API.
+ */
+export const generateScript = async (topic: string, style: string, token?: string | null): Promise<{ segments: ScriptSegment[], sources: any[] }> => {
+  try {
+    const result = await callBackendAPI('gemini/script', { topic, style }, token);
     return {
-      segments: segments.map((seg: any, index: number) => ({
-        id: `seg-${index}-${Date.now()}`,
-        narration: seg.narration || "",
-        visualDescription: seg.visualDescription || ""
-      })),
-      sources
+      segments: result.segments || [],
+      sources: result.sources || []
     };
   } catch (error) {
     console.error("Script generation failed:", error);
@@ -123,32 +94,12 @@ export const generateScript = async (topic: string, style: string): Promise<{ se
 };
 
 /**
- * Generates cinematic visuals using the flash-image model.
+ * Generates cinematic visuals using the backend API.
  */
-export const generateImageForSegment = async (description: string, style: string): Promise<string> => {
-  const ai = getAI();
-  const finalPrompt = `
-    Cinematic 9:16 vertical photography. 
-    Style: ${style}. 
-    Subject: ${description}. 
-    Atmospheric depth, professional lighting, photorealistic textures, 8k resolution. 
-    No text, logos, or watermarks.
-  `;
+export const generateImageForSegment = async (description: string, style: string, token?: string | null): Promise<string> => {
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-image",
-      contents: { parts: [{ text: finalPrompt }] },
-      config: { imageConfig: { aspectRatio: "9:16" } }
-    });
-    
-    // Iterate through parts to find the image, as recommended
-    const parts = response.candidates?.[0]?.content?.parts || [];
-    for (const part of parts) {
-        if (part.inlineData && part.inlineData.mimeType.startsWith('image')) {
-             return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-        }
-    }
-    throw new Error("No image data found in response");
+    const imageDataUrl = await callBackendAPI('gemini/image', { description, style }, token);
+    return imageDataUrl;
   } catch (error) {
     console.warn("Image generation failed, falling back to placeholder", error);
     return `https://picsum.photos/1080/1920?random=${Date.now()}`;
@@ -157,30 +108,25 @@ export const generateImageForSegment = async (description: string, style: string
 
 /**
  * Synthesizes voiceovers with low-latency decoding.
+ * Returns base64 PCM data from backend, then processes client-side.
  */
-export const generateVoiceForSegment = async (text: string, voice: VoiceName = 'Kore'): Promise<{ audioUrl: string, duration: number, buffer: AudioBuffer }> => {
-  const ai = getAI();
+export const generateVoiceForSegment = async (text: string, voice: VoiceName = 'Kore', token?: string | null): Promise<{ audioUrl: string, duration: number, buffer: AudioBuffer }> => {
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: text.trim() }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } }
-      }
-    });
+    const result = await callBackendAPI('gemini/voice', { text, voice }, token);
+    const { base64Audio, sampleRate } = result;
 
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) throw new Error("No audio data received");
+    if (!base64Audio) {
+      throw new Error("No audio data received");
+    }
 
-    // Use default sample rate if not specified, but usually it's 24000 for this model
-    const wavBlob = base64PcmToWavBlob(base64Audio, 24000); 
+    // Convert base64 PCM to WAV blob (client-side processing)
+    const wavBlob = base64PcmToWavBlob(base64Audio, sampleRate || 24000);
     const audioUrl = URL.createObjectURL(wavBlob);
     
     const ctx = getDecoderCtx();
     // Ensure context is running (browsers might suspend it)
     if (ctx.state === 'suspended') {
-        await ctx.resume();
+      await ctx.resume();
     }
 
     const arrayBuffer = await wavBlob.arrayBuffer();
