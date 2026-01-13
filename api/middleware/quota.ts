@@ -1,4 +1,4 @@
-import { VercelRequest, VercelResponse } from '@vercel/node';
+import { Request, Response, NextFunction } from 'express';
 import { QuotaService } from '../services/quota';
 
 /**
@@ -6,12 +6,12 @@ import { QuotaService } from '../services/quota';
  * Returns true if quota check passes, false otherwise (and sends 429 response)
  */
 export async function enforceQuota(
-  req: VercelRequest,
-  res: VercelResponse,
+  req: Request,
+  res: Response,
   estimatedTokens: number = 0
 ): Promise<boolean> {
   try {
-    const userId = (req as any).userId; // Set by requireAuth middleware
+    const userId = req.userId; // Set by requireAuth middleware
     if (!userId) {
       res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
       return false;
@@ -34,8 +34,8 @@ export async function enforceQuota(
     }
 
     // Attach quota service to request for post-processing
-    (req as any).quotaService = quotaService;
-    (req as any).userId = userId;
+    req.quotaService = quotaService;
+    req.userId = userId;
 
     return true;
   } catch (error: any) {
