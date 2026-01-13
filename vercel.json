@@ -1,19 +1,9 @@
 {
-  "functions": {
-    "api/**/*.ts": {
-      "maxDuration": 60
-    }
-  },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ],
-  "crons": [
-    {
-      "path": "/api/cron/reset-quotas",
-      "schedule": "0 0 * * *"
-    }
-  ]
+  "comment": "This file is for frontend-only deployment. API routes are now handled by Express backend. Set VITE_API_URL environment variable to point to your Express backend."
 }
