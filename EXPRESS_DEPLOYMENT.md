@@ -82,14 +82,19 @@ Make sure to set these in your deployment platform:
 
 ```
 PORT=3001 (optional - most platforms set this automatically)
-CLERK_SECRET_KEY=your_clerk_secret_key
-GEMINI_API_KEY=your_gemini_api_key
-SUPABASE_URL=your_supabase_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+CLERK_SECRET_KEY=your_clerk_secret_key (REQUIRED - for authentication)
+GEMINI_API_KEY=your_gemini_api_key (REQUIRED)
+SUPABASE_URL=your_supabase_url (REQUIRED)
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key (REQUIRED)
 DEFAULT_DAILY_TOKENS=10000 (optional)
 DEFAULT_DAILY_REQUESTS=15 (optional)
 CRON_SECRET=your_cron_secret (optional, for manual cron triggers)
 ```
+
+**Important:** 
+- `CLERK_SECRET_KEY` is **REQUIRED** - without it, all API calls will return 401 Unauthorized
+- Get your Clerk secret key from: https://dashboard.clerk.com → Your App → API Keys → Secret Key
+- The key should start with `sk_test_` (test) or `sk_live_` (production)
 
 ---
 

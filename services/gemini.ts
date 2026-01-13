@@ -15,20 +15,16 @@ const getDecoderCtx = () => {
  * Includes error handling for session expiration and network failures
  */
 async function callBackendAPI(endpoint: string, body: any, token?: string | null): Promise<any> {
+  // Token is required for all API calls
   if (!token) {
-    // For now, we'll make requests without authentication
-    // In production, this should be handled properly with Clerk
-    console.warn('No authentication token provided');
+    throw new Error('Authentication required. Please sign in to continue.');
   }
 
   try {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}` // Always include Authorization header
     };
-    
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
 
     const response = await fetch(getApiUrl(endpoint), {
       method: 'POST',
