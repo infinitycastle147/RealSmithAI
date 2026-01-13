@@ -1,5 +1,5 @@
 // @ts-ignore - @supabase/supabase-js types will be available after npm install
-import { getDbClient, QuotaRow } from '../../../lib/db';
+import { getDbClient, QuotaRow } from '../../lib/db';
 
 export interface QuotaStatus {
   userId: string;
@@ -97,9 +97,7 @@ export class QuotaService {
     // Get today's date in UTC
     const today = new Date().toISOString().split('T')[0];
     // Handle both Date objects and string dates
-    const lastResetDate = quota.last_reset_date instanceof Date 
-      ? quota.last_reset_date.toISOString().split('T')[0]
-      : quota.last_reset_date.toString().split('T')[0];
+    const lastResetDate = new Date(quota.last_reset_date).toISOString().split('T')[0];
 
     if (lastResetDate !== today) {
       await this.resetDailyQuota(userId);
