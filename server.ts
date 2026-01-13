@@ -13,12 +13,19 @@ const PORT = process.env.PORT || 3001;
 
 // Initialize Clerk middleware FIRST - must be applied before any other middleware
 // This attaches the auth object to the request so getAuth() can work
-// Clerk automatically reads CLERK_SECRET_KEY from process.env
+// Clerk requires both CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY
 if (!process.env.CLERK_SECRET_KEY) {
   console.error('❌ ERROR: CLERK_SECRET_KEY is not set in environment variables');
   console.error('   Authentication will not work. Please set CLERK_SECRET_KEY in your environment.');
   console.error('   Get your key from: https://dashboard.clerk.com → Your App → API Keys → Secret Key');
   process.exit(1); // Exit if secret key is not set
+}
+
+if (!process.env.CLERK_PUBLISHABLE_KEY) {
+  console.error('❌ ERROR: CLERK_PUBLISHABLE_KEY is not set in environment variables');
+  console.error('   Authentication will not work. Please set CLERK_PUBLISHABLE_KEY in your environment.');
+  console.error('   Get your key from: https://dashboard.clerk.com → Your App → API Keys → Publishable Key');
+  process.exit(1); // Exit if publishable key is not set
 }
 
 // CORS configuration - must be before other middleware
@@ -68,7 +75,11 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Apply Clerk middleware - this must be done before any routes use getAuth()
-app.use(clerkMiddleware());
+// Explicitly pass both keys to clerkMiddleware
+app.use(clerkMiddleware({
+  publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
+  secretKey: process.env.CLERK_SECRET_KEY,
+}));
 console.log('✅ Clerk middleware initialized');
 
 // Other middleware
