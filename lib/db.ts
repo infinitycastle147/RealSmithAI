@@ -33,13 +33,33 @@ function getDbClient() {
       throw new Error('SUPABASE_SERVICE_ROLE_KEY environment variable is not set');
     }
 
+    // Verify service role key format (should start with sb_secret_)
+    if (!supabaseServiceRoleKey.startsWith('sb_secret_')) {
+      console.warn('⚠️ WARNING: SUPABASE_SERVICE_ROLE_KEY does not start with "sb_secret_"');
+      console.warn('   Make sure you are using the Service Role Key, not the Publishable Key');
+      console.warn('   Get it from: Supabase Dashboard → Settings → API → Service Role Key');
+    }
+
     // Use service role key to bypass RLS (we handle auth via Clerk)
+    // Service role key automatically bypasses RLS when used correctly
     dbClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
       auth: {
         autoRefreshToken: false,
-        persistSession: false
+        persistSession: false,
+        detectSessionInUrl: false
+      },
+      db: {
+        schema: 'public'
+      },
+      global: {
+        headers: {
+          'apikey': supabaseServiceRoleKey,
+          'Authorization': `Bearer ${supabaseServiceRoleKey}`
+        }
       }
     });
+    
+    console.log('✅ Supabase client initialized with service role key');
   }
   return dbClient;
 }
