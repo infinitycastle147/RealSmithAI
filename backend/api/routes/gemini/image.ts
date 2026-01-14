@@ -57,7 +57,7 @@ router.post('/', async (req: Request, res: Response) => {
     // Iterate through parts to find the image, as recommended
     const parts = response.candidates?.[0]?.content?.parts || [];
     for (const part of parts) {
-      if (part.inlineData && part.inlineData.mimeType.startsWith('image')) {
+      if (part.inlineData && part.inlineData.mimeType && part.inlineData.mimeType.startsWith('image')) {
         const imageDataUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
         
         // Deduct tokens from quota
