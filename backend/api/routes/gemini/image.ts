@@ -49,7 +49,10 @@ router.post('/', async (req: Request, res: Response) => {
     const usageMetadata = response.usageMetadata;
     const inputTokens = usageMetadata?.promptTokenCount || 0;
     const outputTokens = usageMetadata?.candidatesTokenCount || 0;
-    const totalTokens = inputTokens + outputTokens || 500; // Fallback estimate
+    // Use actual tokens if available, otherwise fallback to estimated tokens
+    const totalTokens = (inputTokens + outputTokens) > 0 
+      ? (inputTokens + outputTokens) 
+      : estimatedTokens;
 
     // Iterate through parts to find the image, as recommended
     const parts = response.candidates?.[0]?.content?.parts || [];
@@ -66,7 +69,8 @@ router.post('/', async (req: Request, res: Response) => {
             'gemini-2.5-flash-image',
             'image',
             inputTokens,
-            outputTokens
+            outputTokens,
+            estimatedTokens // Pass estimated tokens for validation
           );
         }
 
@@ -91,7 +95,8 @@ router.post('/', async (req: Request, res: Response) => {
         'gemini-2.5-flash-image',
         'image',
         inputTokens,
-        outputTokens
+        outputTokens,
+        estimatedTokens // Pass estimated tokens for validation
       );
     }
 
@@ -107,8 +112,21 @@ router.post('/', async (req: Request, res: Response) => {
     const errorStatus = errorObj?.status || error.status;
     
     // Check if this is a Gemini API quota error (429 from Google)
-    if (errorCode === 429 || errorStatus === 429 || errorStatus === 'RESOURCE_EXHAUSTED' ||
-        (errorMessage && errorMessage.toLowerCase().includes('quota') && errorMessage.toLowerCase().includes('exceeded'))) {
+    // Only match actual Google API errors, not generic quota messages
+    const isGeminiQuotaError = 
+      errorCode === 429 || 
+      errorStatus === 429 || 
+      errorStatus === 'RESOURCE_EXHAUSTED' ||
+      (errorMessage && (
+        errorMessage.toLowerCase().includes('resource exhausted') ||
+        errorMessage.toLowerCase().includes('quota exceeded') && (
+          errorMessage.toLowerCase().includes('api') ||
+          errorMessage.toLowerCase().includes('google') ||
+          errorMessage.toLowerCase().includes('gemini')
+        )
+      ));
+    
+    if (isGeminiQuotaError) {
       console.error('⚠️ Gemini API quota exceeded - API key has reached its limit');
       console.error('   Error code:', errorCode);
       console.error('   Error status:', errorStatus);

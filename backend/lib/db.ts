@@ -32,32 +32,8 @@ function getDbClient() {
     if (!supabaseServiceRoleKey) {
       throw new Error('SUPABASE_SERVICE_ROLE_KEY environment variable is not set');
     }
-
-    // Verify service role key format (should start with sb_secret_)
-    if (!supabaseServiceRoleKey.startsWith('sb_secret_')) {
-      console.warn('⚠️ WARNING: SUPABASE_SERVICE_ROLE_KEY does not start with "sb_secret_"');
-      console.warn('   Make sure you are using the Service Role Key, not the Publishable Key');
-      console.warn('   Get it from: Supabase Dashboard → Settings → API → Service Role Key');
-    }
-
-    // Use service role key to bypass RLS (we handle auth via Clerk)
-    // Service role key automatically bypasses RLS when used correctly
-    // Important: The service role key (sb_secret_...) bypasses RLS automatically
-    // When using service role key, Supabase automatically bypasses all RLS policies
+    
     dbClient = createClient(supabaseUrl, supabaseServiceRoleKey);
-    
-    // Verify the client configuration
-    console.log('✅ Supabase client initialized with service role key');
-    console.log(`   URL: ${supabaseUrl}`);
-    console.log(`   Service Role Key format: ${supabaseServiceRoleKey.substring(0, 20)}...`);
-    
-    // Verify service role key format
-    if (!supabaseServiceRoleKey.startsWith('sb_secret_')) {
-      console.error('❌ ERROR: SUPABASE_SERVICE_ROLE_KEY does not start with "sb_secret_"');
-      console.error('   You may be using the Publishable Key instead of the Service Role Key');
-      console.error('   Get the Service Role Key from: Supabase Dashboard → Settings → API → Service Role Key');
-      throw new Error('Invalid SUPABASE_SERVICE_ROLE_KEY format - must start with "sb_secret_"');
-    }
   }
   return dbClient;
 }

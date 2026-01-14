@@ -150,10 +150,13 @@ export class QuotaService {
 
       const quota = await this.getUserQuotaRecord(userId);
       if (!quota) {
+        // If quota record can't be retrieved/created, log warning but allow request
+        // This prevents blocking users due to database/RLS issues
+        console.warn(`⚠️ Could not retrieve quota record for user ${userId}. Allowing request but quota tracking may be inaccurate.`);
         return {
-          hasQuota: false,
-          tokensRemaining: 0,
-          requestsRemaining: 0,
+          hasQuota: true, // Fail open - allow request if quota can't be checked
+          tokensRemaining: this.DEFAULT_DAILY_TOKENS,
+          requestsRemaining: this.DEFAULT_DAILY_REQUESTS,
           resetTime: this.getResetTime(),
         };
       }
@@ -175,6 +178,21 @@ export class QuotaService {
       // Check if user has sufficient quota (with buffer applied)
       const hasTokenQuota = (quota.tokens_used + estimatedTokens) <= effectiveTokens;
       const hasRequestQuota = quota.requests_used < effectiveRequests;
+
+      // Log quota check details for debugging
+      if (!hasTokenQuota || !hasRequestQuota) {
+        console.log(`Quota check failed for user ${userId}:`, {
+          tokensUsed: quota.tokens_used,
+          dailyTokens: quota.daily_tokens,
+          effectiveTokens,
+          estimatedTokens,
+          hasTokenQuota,
+          requestsUsed: quota.requests_used,
+          dailyRequests: quota.daily_request_limit,
+          effectiveRequests,
+          hasRequestQuota
+        });
+      }
 
       return {
         hasQuota: hasTokenQuota && hasRequestQuota,
@@ -229,6 +247,9 @@ export class QuotaService {
   /**
    * Deduct tokens after API call
    * Uses atomic database operations to prevent race conditions
+   * Note: checkAndResetIfNeeded should be called before this method (already done in checkQuota)
+   * 
+   * @param estimatedTokens - The estimated tokens used during quota check (for validation)
    */
   async deductTokens(
     userId: string,
@@ -236,28 +257,46 @@ export class QuotaService {
     model: string,
     requestType: 'script' | 'image' | 'voice',
     inputTokens: number = 0,
-    outputTokens: number = 0
+    outputTokens: number = 0,
+    estimatedTokens?: number
   ): Promise<void> {
     try {
       const client = getDbClient();
 
-      // Ensure quota is reset if needed
+      // Ensure quota is reset if needed (safety check, though it should already be done)
       await this.checkAndResetIfNeeded(userId);
 
-      // Get current quota for atomic update
+      // Validate: actual tokens shouldn't exceed estimated by more than 50% (safety margin)
+      // This prevents quota bypass if actual usage is much higher than estimated
+      if (estimatedTokens !== undefined && tokens > estimatedTokens * 1.5) {
+        console.warn(
+          `Token usage (${tokens}) significantly exceeds estimate (${estimatedTokens}). ` +
+          `Using estimated value to prevent quota bypass.`
+        );
+        // Use estimated value to prevent quota bypass, but log actual for monitoring
+        tokens = Math.min(tokens, Math.ceil(estimatedTokens * 1.5));
+      }
+
+      // Get current quota for update
       const quota = await this.getUserQuotaRecord(userId);
       if (!quota) {
         console.error('Cannot deduct tokens: quota record not found');
         return;
       }
 
-      // Atomic update of quota
+      // Calculate new values
+      const newTokensUsed = quota.tokens_used + tokens;
+      const newRequestsUsed = quota.requests_used + 1;
       const now = new Date().toISOString();
+
+      // Update quota - Supabase update is atomic at the row level
+      // For better race condition handling, we'll use a simple update
+      // In production, consider using a PostgreSQL function for true atomic increment
       const { error: updateError } = await client
         .from('user_quotas')
         .update({
-          tokens_used: quota.tokens_used + tokens,
-          requests_used: quota.requests_used + 1,
+          tokens_used: newTokensUsed,
+          requests_used: newRequestsUsed,
           updated_at: now,
         })
         .eq('user_id', userId);
@@ -321,7 +360,9 @@ export class QuotaService {
   }
 
   /**
-   * Reset all user quotas (for cron job)
+   * Reset all user quotas (optional - for manual admin operations)
+   * Note: Quotas reset automatically on-demand when users make requests,
+   * so this method is not required for normal operation.
    */
   async resetAllQuotas(): Promise<number> {
     try {

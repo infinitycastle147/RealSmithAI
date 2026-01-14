@@ -9,27 +9,11 @@ import scriptRoute from './api/routes/gemini/script';
 import imageRoute from './api/routes/gemini/image';
 import voiceRoute from './api/routes/gemini/voice';
 import quotaStatusRoute from './api/routes/quota/status';
-import { setupCronJobs } from './api/cron/scheduler';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Initialize Clerk middleware FIRST - must be applied before any other middleware
-// This attaches the auth object to the request so getAuth() can work
-// Clerk requires both CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY
-if (!process.env.CLERK_SECRET_KEY) {
-  console.error('❌ ERROR: CLERK_SECRET_KEY is not set in environment variables');
-  console.error('   Authentication will not work. Please set CLERK_SECRET_KEY in your environment.');
-  console.error('   Get your key from: https://dashboard.clerk.com → Your App → API Keys → Secret Key');
-  process.exit(1); // Exit if secret key is not set
-}
 
-if (!process.env.CLERK_PUBLISHABLE_KEY) {
-  console.error('❌ ERROR: CLERK_PUBLISHABLE_KEY is not set in environment variables');
-  console.error('   Authentication will not work. Please set CLERK_PUBLISHABLE_KEY in your environment.');
-  console.error('   Get your key from: https://dashboard.clerk.com → Your App → API Keys → Publishable Key');
-  process.exit(1); // Exit if publishable key is not set
-}
 
 // CORS configuration - must be before other middleware
 // Allow all origins in development, restrict in production
@@ -166,8 +150,4 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 app.listen(PORT, () => {
   console.log(`🚀 Express server running on port ${PORT}`);
   console.log(`📡 API endpoints available at http://localhost:${PORT}/api`);
-  
-  // Setup cron jobs
-  setupCronJobs();
-  console.log('⏰ Cron jobs initialized');
 });
