@@ -1,3 +1,6 @@
+// Load environment variables from .env file FIRST, before anything else
+import 'dotenv/config';
+
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { clerkMiddleware, getAuth } from '@clerk/express';

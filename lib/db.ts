@@ -42,24 +42,22 @@ function getDbClient() {
 
     // Use service role key to bypass RLS (we handle auth via Clerk)
     // Service role key automatically bypasses RLS when used correctly
-    dbClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-        detectSessionInUrl: false
-      },
-      db: {
-        schema: 'public'
-      },
-      global: {
-        headers: {
-          'apikey': supabaseServiceRoleKey,
-          'Authorization': `Bearer ${supabaseServiceRoleKey}`
-        }
-      }
-    });
+    // Important: The service role key (sb_secret_...) bypasses RLS automatically
+    // When using service role key, Supabase automatically bypasses all RLS policies
+    dbClient = createClient(supabaseUrl, supabaseServiceRoleKey);
     
+    // Verify the client configuration
     console.log('✅ Supabase client initialized with service role key');
+    console.log(`   URL: ${supabaseUrl}`);
+    console.log(`   Service Role Key format: ${supabaseServiceRoleKey.substring(0, 20)}...`);
+    
+    // Verify service role key format
+    if (!supabaseServiceRoleKey.startsWith('sb_secret_')) {
+      console.error('❌ ERROR: SUPABASE_SERVICE_ROLE_KEY does not start with "sb_secret_"');
+      console.error('   You may be using the Publishable Key instead of the Service Role Key');
+      console.error('   Get the Service Role Key from: Supabase Dashboard → Settings → API → Service Role Key');
+      throw new Error('Invalid SUPABASE_SERVICE_ROLE_KEY format - must start with "sb_secret_"');
+    }
   }
   return dbClient;
 }

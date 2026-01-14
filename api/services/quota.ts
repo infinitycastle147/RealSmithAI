@@ -61,22 +61,55 @@ export class QuotaService {
       }
 
       // Create new quota record if it doesn't exist
+      // Use upsert to handle race conditions where multiple requests try to create at once
       const today = new Date().toISOString().split('T')[0];
+      
+      console.log(`Creating quota record for user: ${userId}`);
+      
       const { data: newData, error: insertError } = await client
         .from('user_quotas')
-        .insert({
+        .upsert({
           user_id: userId,
           daily_tokens: this.DEFAULT_DAILY_TOKENS,
           daily_request_limit: this.DEFAULT_DAILY_REQUESTS,
           last_reset_date: today,
           tokens_used: 0,
           requests_used: 0,
+        }, {
+          onConflict: 'user_id'
         })
         .select()
         .single();
 
       if (insertError) {
         console.error('Error creating user quota:', insertError);
+        console.error('Error code:', insertError.code);
+        console.error('Error message:', insertError.message);
+        console.error('Error details:', insertError.details);
+        console.error('Error hint:', insertError.hint);
+        
+        // If duplicate key error (race condition), retry SELECT to get the existing record
+        if (insertError.code === '23505') {
+          console.log('Duplicate key detected (race condition), retrying SELECT...');
+          const { data: retryData, error: retryError } = await client
+            .from('user_quotas')
+            .select('*')
+            .eq('user_id', userId)
+            .single();
+          
+          if (!retryError && retryData) {
+            return retryData as QuotaRow;
+          }
+        }
+        
+        // If RLS error, check if service role key is configured correctly
+        if (insertError.code === '42501') {
+          console.error('⚠️ RLS Policy Violation Detected!');
+          console.error('   This suggests the service role key may not be configured correctly.');
+          console.error('   Verify SUPABASE_SERVICE_ROLE_KEY starts with "sb_secret_"');
+          console.error('   Get it from: Supabase Dashboard → Settings → API → Service Role Key');
+        }
+        
         return null;
       }
 
