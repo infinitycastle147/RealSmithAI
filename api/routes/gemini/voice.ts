@@ -33,6 +33,9 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'Server configuration error', code: 'SERVER_ERROR' });
     }
 
+    // Log API key prefix for debugging (first 10 chars only for security)
+    console.log(`Using Gemini API key: ${apiKey.substring(0, 10)}...`);
+
     const ai = new GoogleGenAI({ apiKey });
     const voiceName = voice || 'Kore';
 
@@ -86,8 +89,40 @@ router.post('/', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Voice generation failed:", error);
+    
+    // Extract error details - GoogleGenAI errors may be nested
+    const errorObj = error.error || error;
+    const errorCode = errorObj?.code || error.code || error.status;
+    const errorMessage = errorObj?.message || error.message || '';
+    const errorStatus = errorObj?.status || error.status;
+    
+    // Check if this is a Gemini API quota error (429 from Google)
+    if (errorCode === 429 || errorStatus === 429 || errorStatus === 'RESOURCE_EXHAUSTED' ||
+        (errorMessage && errorMessage.toLowerCase().includes('quota') && errorMessage.toLowerCase().includes('exceeded'))) {
+      console.error('⚠️ Gemini API quota exceeded - API key has reached its limit');
+      console.error('   Error code:', errorCode);
+      console.error('   Error status:', errorStatus);
+      console.error('   Error message:', errorMessage);
+      return res.status(503).json({ 
+        error: 'AI service quota exceeded. The API key has reached its daily limit. Please check your Google AI Studio quota or contact support.',
+        code: 'GEMINI_QUOTA_EXCEEDED',
+        details: 'This is a Google API key quota issue, not your user quota. The backend API key needs to be updated or quota increased.',
+        originalError: errorMessage
+      });
+    }
+    
+    // Check if this is an authentication error (invalid API key)
+    if (errorCode === 401 || errorStatus === 401 || 
+        (errorMessage && (errorMessage.toLowerCase().includes('api key') || errorMessage.toLowerCase().includes('authentication')))) {
+      console.error('⚠️ Gemini API authentication failed - API key may be invalid');
+      return res.status(500).json({ 
+        error: 'AI service authentication failed. Please check the API key configuration.',
+        code: 'GEMINI_AUTH_ERROR'
+      });
+    }
+    
     return res.status(500).json({ 
-      error: error.message || 'Voice generation failed', 
+      error: errorMessage || error.message || 'Voice generation failed', 
       code: 'GENERATION_ERROR' 
     });
   }
