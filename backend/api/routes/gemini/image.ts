@@ -33,9 +33,6 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'Server configuration error', code: 'SERVER_ERROR' });
     }
 
-    // Log API key prefix for debugging (first 10 chars only for security)
-    console.log(`Using Gemini API key: ${apiKey.substring(0, 10)}...`);
-
     const ai = new GoogleGenAI({ apiKey });
     const finalPrompt = createImagePrompt(description, style);
 
@@ -103,8 +100,6 @@ router.post('/', async (req: Request, res: Response) => {
     const placeholderUrl = `https://picsum.photos/1080/1920?random=${Date.now()}`;
     return res.status(200).json({ data: placeholderUrl });
   } catch (error: any) {
-    console.error("Image generation failed:", error);
-    
     // Extract error details - GoogleGenAI errors may be nested
     const errorObj = error.error || error;
     const errorCode = errorObj?.code || error.code || error.status;
@@ -127,10 +122,6 @@ router.post('/', async (req: Request, res: Response) => {
       ));
     
     if (isGeminiQuotaError) {
-      console.error('⚠️ Gemini API quota exceeded - API key has reached its limit');
-      console.error('   Error code:', errorCode);
-      console.error('   Error status:', errorStatus);
-      console.error('   Error message:', errorMessage);
       return res.status(503).json({ 
         error: 'AI service quota exceeded. The API key has reached its daily limit. Please check your Google AI Studio quota or contact support.',
         code: 'GEMINI_QUOTA_EXCEEDED',
@@ -142,7 +133,6 @@ router.post('/', async (req: Request, res: Response) => {
     // Check if this is an authentication error (invalid API key)
     if (errorCode === 401 || errorStatus === 401 || 
         (errorMessage && (errorMessage.toLowerCase().includes('api key') || errorMessage.toLowerCase().includes('authentication')))) {
-      console.error('⚠️ Gemini API authentication failed - API key may be invalid');
       return res.status(500).json({ 
         error: 'AI service authentication failed. Please check the API key configuration.',
         code: 'GEMINI_AUTH_ERROR'
@@ -150,7 +140,6 @@ router.post('/', async (req: Request, res: Response) => {
     }
     
     // Fallback to placeholder for other errors
-    console.warn("Image generation failed, falling back to placeholder", error);
     const placeholderUrl = `https://picsum.photos/1080/1920?random=${Date.now()}`;
     return res.status(200).json({ data: placeholderUrl });
   }

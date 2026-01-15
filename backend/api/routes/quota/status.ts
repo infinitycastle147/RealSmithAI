@@ -21,7 +21,6 @@ router.get('/', async (req: Request, res: Response) => {
       data: quotaStatus
     });
   } catch (error: any) {
-    console.error('Error getting quota status:', error);
     return res.status(500).json({
       error: error.message || 'Failed to retrieve quota status',
       code: 'QUOTA_ERROR'

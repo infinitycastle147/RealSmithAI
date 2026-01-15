@@ -1,24 +1,6 @@
 // @ts-ignore - @supabase/supabase-js types will be available after npm install
 import { getDbClient, QuotaRow } from '../../lib/db';
-
-export interface QuotaStatus {
-  userId: string;
-  dailyTokens: number;
-  tokensUsed: number;
-  tokensRemaining: number;
-  requestsUsed: number;
-  requestsRemaining: number;
-  dailyRequestLimit: number;
-  lastResetDate: string;
-  resetTime: Date;
-}
-
-export interface QuotaCheckResult {
-  hasQuota: boolean;
-  tokensRemaining: number;
-  requestsRemaining: number;
-  resetTime: Date | null;
-}
+import { QuotaStatus, QuotaCheckResult } from '../../types/quota';
 
 /**
  * Quota Service - Manages user token quotas and usage tracking
@@ -52,7 +34,6 @@ export class QuotaService {
 
       if (error && error.code !== 'PGRST116') {
         // PGRST116 is "no rows returned" which is expected for new users
-        console.error('Error getting user quota:', error);
         return null;
       }
 
@@ -63,8 +44,6 @@ export class QuotaService {
       // Create new quota record if it doesn't exist
       // Use upsert to handle race conditions where multiple requests try to create at once
       const today = new Date().toISOString().split('T')[0];
-      
-      console.log(`Creating quota record for user: ${userId}`);
       
       const { data: newData, error: insertError } = await client
         .from('user_quotas')
@@ -82,15 +61,8 @@ export class QuotaService {
         .single();
 
       if (insertError) {
-        console.error('Error creating user quota:', insertError);
-        console.error('Error code:', insertError.code);
-        console.error('Error message:', insertError.message);
-        console.error('Error details:', insertError.details);
-        console.error('Error hint:', insertError.hint);
-        
         // If duplicate key error (race condition), retry SELECT to get the existing record
         if (insertError.code === '23505') {
-          console.log('Duplicate key detected (race condition), retrying SELECT...');
           const { data: retryData, error: retryError } = await client
             .from('user_quotas')
             .select('*')
@@ -102,20 +74,11 @@ export class QuotaService {
           }
         }
         
-        // If RLS error, check if service role key is configured correctly
-        if (insertError.code === '42501') {
-          console.error('⚠️ RLS Policy Violation Detected!');
-          console.error('   This suggests the service role key may not be configured correctly.');
-          console.error('   Verify SUPABASE_SERVICE_ROLE_KEY starts with "sb_secret_"');
-          console.error('   Get it from: Supabase Dashboard → Settings → API → Service Role Key');
-        }
-        
         return null;
       }
 
       return newData as QuotaRow;
     } catch (error) {
-      console.error('Error getting user quota:', error);
       return null;
     }
   }
@@ -150,9 +113,8 @@ export class QuotaService {
 
       const quota = await this.getUserQuotaRecord(userId);
       if (!quota) {
-        // If quota record can't be retrieved/created, log warning but allow request
+        // If quota record can't be retrieved/created, fail open to allow request
         // This prevents blocking users due to database/RLS issues
-        console.warn(`⚠️ Could not retrieve quota record for user ${userId}. Allowing request but quota tracking may be inaccurate.`);
         return {
           hasQuota: true, // Fail open - allow request if quota can't be checked
           tokensRemaining: this.DEFAULT_DAILY_TOKENS,
@@ -178,21 +140,6 @@ export class QuotaService {
       // Check if user has sufficient quota (with buffer applied)
       const hasTokenQuota = (quota.tokens_used + estimatedTokens) <= effectiveTokens;
       const hasRequestQuota = quota.requests_used < effectiveRequests;
-
-      // Log quota check details for debugging
-      if (!hasTokenQuota || !hasRequestQuota) {
-        console.log(`Quota check failed for user ${userId}:`, {
-          tokensUsed: quota.tokens_used,
-          dailyTokens: quota.daily_tokens,
-          effectiveTokens,
-          estimatedTokens,
-          hasTokenQuota,
-          requestsUsed: quota.requests_used,
-          dailyRequests: quota.daily_request_limit,
-          effectiveRequests,
-          hasRequestQuota
-        });
-      }
 
       return {
         hasQuota: hasTokenQuota && hasRequestQuota,
@@ -269,18 +216,13 @@ export class QuotaService {
       // Validate: actual tokens shouldn't exceed estimated by more than 50% (safety margin)
       // This prevents quota bypass if actual usage is much higher than estimated
       if (estimatedTokens !== undefined && tokens > estimatedTokens * 1.5) {
-        console.warn(
-          `Token usage (${tokens}) significantly exceeds estimate (${estimatedTokens}). ` +
-          `Using estimated value to prevent quota bypass.`
-        );
-        // Use estimated value to prevent quota bypass, but log actual for monitoring
+        // Use estimated value to prevent quota bypass
         tokens = Math.min(tokens, Math.ceil(estimatedTokens * 1.5));
       }
 
       // Get current quota for update
       const quota = await this.getUserQuotaRecord(userId);
       if (!quota) {
-        console.error('Cannot deduct tokens: quota record not found');
         return;
       }
 
@@ -302,7 +244,6 @@ export class QuotaService {
         .eq('user_id', userId);
 
       if (updateError) {
-        console.error('Error updating quota:', updateError);
         // Don't throw - log the error but don't fail the request
         return;
       }
@@ -320,13 +261,10 @@ export class QuotaService {
             total_tokens: tokens,
           });
       } catch (logError) {
-        // Log error but don't fail the request
-        console.error('Error logging usage (non-critical):', logError);
+        // Silently fail - don't fail the request due to logging failure
       }
     } catch (error) {
-      console.error('Error deducting tokens:', error);
-      // Don't throw - log the error but don't fail the request
-      // This ensures API calls succeed even if quota tracking fails
+      // Don't throw - silent fail to ensure API calls succeed
     }
   }
 

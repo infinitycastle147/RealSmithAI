@@ -85,7 +85,6 @@ router.post('/', async (req: Request, res: Response) => {
     try {
       segments = JSON.parse(cleanedText);
     } catch (e) {
-      console.error("JSON Parse Error on output:", cleanedText);
       return res.status(500).json({ error: 'Failed to parse AI response', code: 'PARSE_ERROR' });
     }
 
@@ -133,9 +132,6 @@ router.post('/', async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
-    console.error("Script generation failed:", error);
-    console.error("Error structure:", JSON.stringify(error, null, 2));
-    
     // Extract error details - GoogleGenAI errors may be nested
     const errorObj = error.error || error;
     const errorCode = errorObj?.code || error.code || error.status;
@@ -158,10 +154,6 @@ router.post('/', async (req: Request, res: Response) => {
       ));
     
     if (isGeminiQuotaError) {
-      console.error('⚠️ Gemini API quota exceeded - API key has reached its limit');
-      console.error('   Error code:', errorCode);
-      console.error('   Error status:', errorStatus);
-      console.error('   Error message:', errorMessage);
       return res.status(503).json({ 
         error: 'AI service quota exceeded. The API key has reached its daily limit. Please check your Google AI Studio quota or contact support.',
         code: 'GEMINI_QUOTA_EXCEEDED',
@@ -173,7 +165,6 @@ router.post('/', async (req: Request, res: Response) => {
     // Check if this is an authentication error (invalid API key)
     if (errorCode === 401 || errorStatus === 401 || 
         (errorMessage && (errorMessage.toLowerCase().includes('api key') || errorMessage.toLowerCase().includes('authentication')))) {
-      console.error('⚠️ Gemini API authentication failed - API key may be invalid');
       return res.status(500).json({ 
         error: 'AI service authentication failed. Please check the API key configuration.',
         code: 'GEMINI_AUTH_ERROR'

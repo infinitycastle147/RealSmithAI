@@ -9,6 +9,7 @@ import scriptRoute from './api/routes/gemini/script';
 import imageRoute from './api/routes/gemini/image';
 import voiceRoute from './api/routes/gemini/voice';
 import quotaStatusRoute from './api/routes/quota/status';
+import './types/express'; // Import Express type extensions
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -26,7 +27,6 @@ const corsOptions = {
     
     // In development, allow all origins for easier testing
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`🌐 CORS: Allowing origin: ${origin}`);
       return callback(null, true);
     }
     
@@ -45,10 +45,8 @@ const corsOptions = {
     }
     
     if (allowedOrigins.includes(origin)) {
-      console.log(`✅ CORS: Allowed origin: ${origin}`);
       callback(null, true);
     } else {
-      console.warn(`⚠️ CORS: Blocked origin: ${origin}`);
       callback(new Error(`Not allowed by CORS. Origin: ${origin}`));
     }
   },
@@ -67,20 +65,9 @@ app.use(clerkMiddleware({
   publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
   secretKey: process.env.CLERK_SECRET_KEY,
 }));
-console.log('✅ Clerk middleware initialized');
 
 // Other middleware
 app.use(express.json());
-
-// Extend Express Request type to include userId
-declare global {
-  namespace Express {
-    interface Request {
-      userId?: string;
-      quotaService?: QuotaService;
-    }
-  }
-}
 
 /**
  * Authentication middleware
@@ -101,18 +88,13 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const { userId } = getAuth(req);
     
     if (!userId) {
-      console.warn('Authentication failed: No userId found in request');
-      // Log request headers for debugging (don't log full token for security)
-      const authHeader = req.headers.authorization;
-      console.warn('Authorization header present:', !!authHeader);
       res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
       return;
     }
     
     req.userId = userId;
     next();
-  } catch (error: any) {
-    console.error('Auth error:', error.message || error);
+  } catch (error) {
     res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
   }
 }
@@ -148,6 +130,5 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Express server running on port ${PORT}`);
-  console.log(`📡 API endpoints available at http://localhost:${PORT}/api`);
+  console.log(`Server running on port ${PORT}`);
 });
