@@ -3,6 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 import { createImagePrompt } from '../../../prompts/image';
 import { enforceQuota } from '../../middleware/quota';
 import { QuotaService } from '../../services/quota';
+import { findImagesViaUnsplash } from '../../services/imageSearch';
 
 const router = Router();
 
@@ -83,29 +84,53 @@ router.post('/', async (req: Request, res: Response) => {
       }
     }
     
-    // Fallback to placeholder (still deduct tokens for the API call)
-    const quotaService = req.quotaService as QuotaService;
-    if (quotaService && totalTokens > 0) {
-      await quotaService.deductTokens(
-        userId,
-        totalTokens,
-        'gemini-2.5-flash-image',
-        'image',
-        inputTokens,
-        outputTokens,
-        estimatedTokens // Pass estimated tokens for validation
-      );
+    // No image in Gemini response - fallback to Unsplash search
+    console.warn('No image found in Gemini response, falling back to Unsplash API');
+    
+    try {
+      const unsplashImageUrl = await findImagesViaUnsplash(description, style);
+      
+      if (unsplashImageUrl) {
+        // Deduct tokens from quota for the failed Gemini attempt
+        const quotaService = req.quotaService as QuotaService;
+        if (quotaService && totalTokens > 0) {
+          await quotaService.deductTokens(
+            userId,
+            totalTokens,
+            'gemini-2.5-flash-image',
+            'image',
+            inputTokens,
+            outputTokens,
+            estimatedTokens
+          );
+        }
+
+        // Get updated quota status for response headers
+        const quotaStatus = quotaService ? await quotaService.getUserQuota(userId) : null;
+        if (quotaStatus) {
+          res.setHeader('X-Quota-Tokens-Remaining', quotaStatus.tokensRemaining.toString());
+          res.setHeader('X-Quota-Requests-Remaining', quotaStatus.requestsRemaining.toString());
+          res.setHeader('X-Quota-Reset-Time', quotaStatus.resetTime.toISOString());
+        }
+
+        return res.status(200).json({ data: unsplashImageUrl });
+      }
+    } catch (unsplashError) {
+      console.error('Unsplash fallback failed:', unsplashError);
     }
 
-    const placeholderUrl = `https://picsum.photos/1080/1920?random=${Date.now()}`;
-    return res.status(200).json({ data: placeholderUrl });
+    // Both Gemini and Unsplash failed
+    return res.status(503).json({ 
+      error: 'Unable to generate or find image. Both AI generation and image search failed.',
+      code: 'IMAGE_GENERATION_FAILED'
+    });
   } catch (error: any) {
     // Extract error details - GoogleGenAI errors may be nested
     const errorObj = error.error || error;
     const errorCode = errorObj?.code || error.code || error.status;
     const errorMessage = errorObj?.message || error.message || '';
     const errorStatus = errorObj?.status || error.status;
-    
+  
     // Check if this is a Gemini API quota error (429 from Google)
     // Only match actual Google API errors, not generic quota messages
     const isGeminiQuotaError = 
@@ -138,10 +163,14 @@ router.post('/', async (req: Request, res: Response) => {
         code: 'GEMINI_AUTH_ERROR'
       });
     }
+
+    // For other Gemini errors, return a generic error response
+    return res.status(503).json({ 
+      error: 'Unable to generate image. Please try again later.',
+      code: 'IMAGE_GENERATION_FAILED',
+      details: errorMessage
+    });
     
-    // Fallback to placeholder for other errors
-    const placeholderUrl = `https://picsum.photos/1080/1920?random=${Date.now()}`;
-    return res.status(200).json({ data: placeholderUrl });
   }
 });
 
