@@ -54,9 +54,6 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'Server configuration error', code: 'SERVER_ERROR' });
     }
 
-    // Log API key prefix for debugging (first 10 chars only for security)
-    console.log(`Using Gemini API key: ${apiKey.substring(0, 10)}...`);
-
     const ai = new GoogleGenAI({ apiKey });
     const userPrompt = createScriptUserPrompt(topic, style);
 
@@ -65,8 +62,6 @@ router.post('/', async (req: Request, res: Response) => {
       contents: userPrompt,
       config: {
         systemInstruction: SCRIPT_SYSTEM_INSTRUCTION,
-        // Enabling Google Search Grounding for live information retrieval
-        tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
